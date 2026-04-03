@@ -1,0 +1,9 @@
+{
+	"compilerOptions": {
+		"lib": ["DOM", "ESNext"],
+		"noEmit": true,
+		"checkJs": true,
+		"strict": true,
+		"strictPropertyInitialization": false
+	}
+}
