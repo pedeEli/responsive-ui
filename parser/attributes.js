@@ -145,7 +145,6 @@ export function setAttributes(transform, attributes, ctx) {
 				let component = addedComponents.get(index);
 				if (component === undefined) {
 					component = transform.addComponent(componentInfo.Component);
-					component.init(ctx);
 					addedComponents.set(index, component);
 				}
 
@@ -157,5 +156,9 @@ export function setAttributes(transform, attributes, ctx) {
 				}
 			}
 		}
+	}
+
+	for (const component of addedComponents.values()) {
+		component.init(ctx);
 	}
 }

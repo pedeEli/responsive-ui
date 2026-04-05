@@ -1,88 +1,38 @@
 /** @import {Component} from './Component.js' */
 import {Size, Anchor, Edges, Vector, Rect, clamp} from '../utils.js'
 
-/** @type {Component[]} */
-const components = [];
 
+/**
+ * Actual getter functions return the object direct. Changes of this object are reflected on the transform.
+ * Functions with the `get` prefix return a new object which will not influence the transform.
+ */
 export class Transform {
+	// attributes
+	/** Includes padding */
 	s$width = Size.fill();
+	/** Includes padding */
 	s$height = Size.fill();
 
+	/** Includes padding */
 	n$minWidth = 0;
+	/** Includes padding */
 	n$minHeight = 0;
+	/** Includes padding */
 	n$maxWidth = Number.MAX_VALUE;
+	/** Includes padding */
 	n$maxHeight = Number.MAX_VALUE;
-
-	a$anchor = Anchor.center();
-	a$pivot = Anchor.center();
 
 	e$padding = Edges.zero();
 	e$margin = Edges.zero();
 
+	a$anchor = Anchor.center();
+	a$pivot = Anchor.center();
+
+	// transforms are stored in a tree structure
+	/** @type {Transform | null} */
+	#parent = null;
 	/** @type {Transform[]} */
 	#children = [];
-	/** @type {null | Transform} */
-	#parent = null;
-
-	/** Position of the top left corner including margin and padding. */
-	#position = new Vector(0, 0);
-	#worldPosition = new Vector(0, 0);
-
-	/** The size with padding and without margin. */
-	#paddingSize = new Vector(0, 0);
-
-	#hasWidth = false;
-	#hasHeight = false;
-	/**
-	 * Position of the top left corner including margin and padding.
-	 * @type {null | Vector}
-	 */
-	#overridePosition = null;
-
-	/** @type {Layout | null} */
-	#layout = null;
-
-	get contentSize() {
-		return new Vector(
-			this.#paddingSize.x - this.e$padding.xaxis,
-			this.#paddingSize.y - this.e$padding.yaxis
-		);
-	}
-	get paddingSize() {
-		return this.#paddingSize
-	}
-	get marginSize() {
-		return new Vector(
-			this.#paddingSize.x + this.e$margin.xaxis,
-			this.#paddingSize.y + this.e$margin.yaxis
-		);
-	}
-
-	get worldMarginRect() {
-		return new Rect(
-			this.#worldPosition.x,
-			this.#worldPosition.y,
-			this.marginSize.x,
-			this.marginSize.y
-		);
-	}
-	get worldPaddingRect() {
-		return new Rect(
-			this.#worldPosition.x + this.e$margin.left,
-			this.#worldPosition.y + this.e$margin.top,
-			this.paddingSize.x,
-			this.paddingSize.y
-		);
-	}
-	get worldContentRect() {
-		return new Rect(
-			this.#worldPosition.x + this.e$margin.left + this.e$padding.left,
-			this.#worldPosition.y + this.e$margin.top + this.e$padding.top,
-			this.contentSize.x,
-			this.contentSize.y
-		);
-	}
-
 	/** @returns {ReadonlyArray<Transform>} */
 	get children() {
 		return this.#children;
@@ -90,25 +40,151 @@ export class Transform {
 	get parent() {
 		return this.#parent;
 	}
-
-	createTransform() {
-		const t = new Transform();
-		t.#parent = this;
-		this.#children.push(t);
-		return t;
+	addChild() {
+		const child = new Transform();
+		child.#parent = this;
+		this.#children.push(child);
+		return child;
 	}
+	
+	// components corresponding to this transform
+	/** @type {Component[]} */
+	#components = [];
+	/** @type {Array<{order: number, index: number}>} */
+	#componentsOrder = [];
 	/**
-	 * @template {Component} C
+	 * @template {Component} TComponent
 	 * @template {any[]} Args
-	 * @param {{ new(transform: Transform, ...args: Args): C }} component
+	 * @param {ComponentConstructor<TComponent, Args>} Component
 	 * @param {Args} args
 	 */
-	addComponent(component, ...args) {
-		const c = new component(this, ...args);
-		components.push(c);
-		return c;
+	addComponent(Component, ...args) {
+		const component = new Component(this, ...args);
+		const index = this.#components.length;
+		this.#components.push(component);
+		for (let i = 0; i < this.#componentsOrder.length; i++) {
+			if (Component.order <= this.#componentsOrder[i].order) {
+				this.#componentsOrder.splice(i, 0, {index, order: Component.order});
+				return component;
+			}
+		}
+		this.#componentsOrder.push({index, order: Component.order});
+		return component;
 	}
 
+	// positioning
+	#position = Vector.zero();
+	#worldPosition = Vector.zero();
+	/** Position of the top left corner including margin and padding. */
+	get position() {
+		return this.#position;
+	}
+	computeWorldPosition() {
+		if (this.#parent) {
+			const rect = this.#parent.getWorldContentRect();
+			this.#worldPosition.x = rect.x + this.#position.x;
+			this.#worldPosition.y = rect.y + this.#position.y;
+		} else {
+			this.#worldPosition.x = this.#position.x;
+			this.#worldPosition.y = this.#position.y;
+		}
+	}
+
+	// sizes
+	#paddingSize = Vector.zero();
+	getContentSize() {
+		return new Vector(
+			this.#paddingSize.x - this.e$padding.xaxis,
+			this.#paddingSize.y - this.e$padding.yaxis
+		);
+	}
+	getPaddingSize() {
+		return new Vector(
+			this.#paddingSize.x,
+			this.#paddingSize.y
+		);
+	}
+	getMarginSize() {
+		return new Vector(
+			this.#paddingSize.x + this.e$margin.xaxis,
+			this.#paddingSize.y + this.e$margin.yaxis
+		);
+	}
+
+	#hasWidth = false;
+	#hasHeight = false;
+	hasWidth() {
+		return this.#hasWidth;
+	}
+	hasHeight() {
+		return this.#hasHeight;
+	}
+	resetSize() {
+		this.#hasWidth = false;
+		this.#hasHeight = false;
+	}
+
+	/** @param {number} value */
+	setContentWidth(value) {
+		this.#hasWidth = true;
+		this.#paddingSize.x = clamp(value + this.e$padding.xaxis, this.n$minWidth, this.n$maxWidth);	
+	}
+	/** @param {number} value */
+	setContentHeight(value) {
+		this.#hasHeight = true;
+		this.#paddingSize.y = clamp(value + this.e$padding.yaxis, this.n$minHeight, this.n$maxHeight);	
+	}
+	/** @param {number} value */
+	setPaddingWidth(value) {
+		this.#hasWidth = true;
+		this.#paddingSize.x = clamp(value, this.n$minWidth, this.n$maxWidth);
+	}
+	/** @param {number} value */
+	setPaddingHeight(value) {
+		this.#hasHeight = true;
+		this.#paddingSize.y = clamp(value, this.n$minHeight, this.n$maxHeight);
+	}
+	/** @param {number} value */
+	setMarginWidth(value) {
+		this.#hasWidth = true;
+		this.#paddingSize.x = clamp(value - this.e$margin.xaxis, this.n$minWidth, this.n$maxWidth);
+	}
+	/** @param {number} value */
+	setMarginHeight(value) {
+		this.#hasHeight = true;
+		this.#paddingSize.y = clamp(value - this.e$margin.yaxis, this.n$minHeight, this.n$maxHeight);
+	}
+
+	getWorldContentRect() {
+		const size = this.getContentSize();
+		return new Rect(
+			this.#worldPosition.x + this.e$margin.left + this.e$padding.left,
+			this.#worldPosition.y + this.e$margin.top + this.e$padding.top,
+			size.x,
+			size.y
+		)
+	}
+	getWorldPaddingRect() {
+		return new Rect(
+			this.#worldPosition.x + this.e$margin.left,
+			this.#worldPosition.y + this.e$margin.top,
+			this.#paddingSize.x,
+			this.#paddingSize.y
+		);
+	}
+	getWorldMarginRect() {
+		const size = this.getMarginSize();
+		return new Rect(
+			this.#worldPosition.x,
+			this.#worldPosition.y,
+			size.x,
+			size.y
+		);
+	}
+
+	// layout
+	/** @type {null | Layout} */
+	#layout = null;
 	/** @param {null | Layout} value */
 	set layout(value) {
 		this.#layout = value;
@@ -117,81 +193,14 @@ export class Transform {
 		return this.#layout;
 	}
 
-	/**
-	 * Position of the top left corner including margin and padding.
-	 * @param {Vector} value
-	 */
-	set overridePosition(value) {
-		this.#overridePosition = value;
-	}
-
-	hasWidth() {
-		return this.#hasWidth;
-	}
-	hasHeight() {
-		return this.#hasHeight;
-	}
-
-	/**
-	 * Sets the width including padding applying min and max width
-	 * @param {number} value
-	 */
-	setWidth(value) {
-			this.#hasWidth = true;
-			this.#paddingSize.x = clamp(value, this.n$minWidth, this.n$maxWidth);
-	}
-	/** 
-	 * Sets the height including padding applying min and max height
-	 * @param {number} value
-	 */
-	setHeight(value) {
-		this.#hasHeight = true;
-		this.#paddingSize.y = clamp(value, this.n$minHeight, this.n$maxHeight);
-	}
-
-	resetSize() {
-		this.#hasWidth = false;
-		this.#hasHeight = false;
-		this.#overridePosition = null;
-	}
-
-	/** @param {Transform} parent */
-	computePosition(parent) {
-		if (this.#overridePosition) {
-			this.#position = this.#overridePosition;
-			return
-		}
-		const anchorX = this.a$anchor.x * parent.contentSize.x;
-		const anchorY = this.a$anchor.y * parent.contentSize.y;
-
-		const pivotX = this.a$pivot.x * this.marginSize.x;
-		const pivotY = this.a$pivot.y * this.marginSize.y;
-
-		this.#position.x = anchorX - pivotX;
-		this.#position.y = anchorY - pivotY;
-	}
-
-	get worldContentOrigin() {
-		return new Vector(
-			this.#worldPosition.x + this.e$margin.left + this.e$padding.left,
-			this.#worldPosition.y + this.e$margin.top + this.e$padding.top
-		);
-	}
-
-	computeWorldPosition() {
-		if (this.#parent) {
-			this.#worldPosition.x = this.#parent.worldContentOrigin.x + this.#position.x;
-			this.#worldPosition.y = this.#parent.worldContentOrigin.y + this.#position.y;
-		} else {
-			this.#worldPosition.x = this.#position.x;
-			this.#worldPosition.y = this.#position.y;
-		}
-	}
-
 	/** @param {CanvasRenderingContext2D} ctx */
-	static renderComponents(ctx) {
-		for (const component of components) {
-			component.render(ctx);
+	render(ctx) {
+		for (const {index} of this.#componentsOrder) {
+			this.#components[index].render(ctx);
+		}
+
+		for (const child of this.#children) {
+			child.render(ctx);
 		}
 	}
 }

@@ -11,8 +11,8 @@ export class Canvas extends Component {
 	 */
 	constructor(transform, width, height) {
 		super(transform);
-		transform.setWidth(width);
-		transform.setHeight(height);
+		transform.setPaddingWidth(width);
+		transform.setPaddingHeight(height);
 		this.setDirty();
 	}
 
@@ -21,8 +21,8 @@ export class Canvas extends Component {
 	 * @param {number} height
 	 */
 	resize(width, height) {
-		this.transform.setWidth(width);
-		this.transform.setHeight(height);
+		this.transform.setPaddingWidth(width);
+		this.transform.setPaddingHeight(height);
 		this.setDirty();
 	}
 
@@ -48,16 +48,16 @@ export class Canvas extends Component {
 	static #resolveSize(node, parent) {
 		if (!node.hasWidth()) {
 			if (node.s$width.isFixed()) {
-				node.setWidth(node.s$width.value);
+				node.setPaddingWidth(node.s$width.value);
 			} else if (node.s$width.isPercent() && parent.hasWidth()) {
-				node.setWidth(parent.contentSize.x * node.s$width.value - node.e$margin.xaxis);
+				node.setPaddingWidth((parent.getContentSize().x - node.e$margin.xaxis) * node.s$width.value)
 			}
 		}
 		if (!node.hasHeight()) {
 			if (node.s$height.isFixed()) {
-				node.setHeight(node.s$height.value);
+				node.setPaddingHeight(node.s$height.value);
 			} else if (node.s$height.isPercent() && parent.hasHeight()) {
-				node.setHeight(parent.contentSize.y * node.s$height.value - node.e$margin.yaxis);
+				node.setPaddingHeight((parent.getContentSize().y - node.e$margin.yaxis) * node.s$height.value);
 			}
 		}
 
@@ -72,8 +72,10 @@ export class Canvas extends Component {
 			for (const child of node.children) {
 				child.resetSize();
 				Canvas.#resolveSize(child, node);
-				width = Math.max(width, child.hasWidth() ? child.marginSize.x : child.n$minWidth);
-				height = Math.max(height, child.hasHeight() ? child.marginSize.y : child.n$minHeight);
+
+				const marginSize = child.getMarginSize();
+				width = Math.max(width, child.hasWidth() ? marginSize.x : child.n$minWidth);
+				height = Math.max(height, child.hasHeight() ? marginSize.y : child.n$minHeight);
 				if (child.hasWidth()) {
 					hasWidth = true;
 				}
@@ -83,10 +85,10 @@ export class Canvas extends Component {
 			}
 
 			if (node.s$width.isAuto() && hasWidth) {
-				node.setWidth(width + node.e$padding.xaxis);
+				node.setContentWidth(width);
 			}
 			if (node.s$height.isAuto() && hasHeight) {
-				node.setHeight(height + node.e$padding.yaxis);
+				node.setContentHeight(height);
 			}
 		}
 	}
@@ -96,10 +98,18 @@ export class Canvas extends Component {
 	 */
 	static #resolveCyclicSize(node, parent) {
 		if (!node.hasWidth()) {
-			node.setWidth(parent.contentSize.x - node.e$margin.xaxis);
+			if (node.s$width.isAuto()) {
+				node.setContentWidth(0);
+			} else if (node.s$width.isPercent()) {
+				node.setPaddingWidth((parent.getContentSize().x - node.e$margin.xaxis) * node.s$width.value);
+			}
 		}
 		if (!node.hasHeight()) {
-			node.setHeight(parent.contentSize.y - node.e$margin.yaxis);
+			if (node.s$height.isAuto()) {
+				node.setContentHeight(0);
+			} else if (node.s$height.isPercent()) {
+				node.setPaddingHeight((parent.getContentSize().y - node.e$margin.yaxis) * node.s$height.value);
+			}
 		}
 
 		for (const child of node.children) {
@@ -111,10 +121,23 @@ export class Canvas extends Component {
 	 * @param {Transform} parent
 	 */
 	static #resolvePosition(node, parent) {
-		node.computePosition(parent);
+		if (!node.layout) {
+			const parentSize = parent.getContentSize();
+			const anchorX = node.a$anchor.x * parentSize.x;
+			const anchorY = node.a$anchor.y * parentSize.y;
+	
+			const marginSize = node.getMarginSize();
+			const pivotX = node.a$pivot.x * marginSize.x;
+			const pivotY = node.a$pivot.y * marginSize.y;
+	
+			node.position.x = anchorX - pivotX;
+			node.position.y = anchorY - pivotY;
+		}
+
 		node.computeWorldPosition();
 		for (const child of node.children) {
 			Canvas.#resolvePosition(child, node);
 		}
 	}
 }
+Canvas.order = 0;

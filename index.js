@@ -1,4 +1,3 @@
-import {Transform} from './components/Transform.js'
 import {parseAndBuild} from './parser/index.js'
 
 
@@ -22,21 +21,20 @@ window.addEventListener('resize', () => {
 
 
 const result = parseAndBuild(ctx, `
-	<div bg=lightblue dir=column align=center gap=70 justify=center>
-		<div width=80% height=300px gap=20 border=black padding=10 dir=row>
-			<div bg=darkred width=100%></div>
-			<div bg=orange width=100%></div>
-		</div>
+	<div bg=lightblue>
+		<div text="hello world" fontSize=40 width=auto height=auto padding=30 bg=orange></div>
 	</div>
 `);
 
 if (!result.success) {
 	console.error(result.e);
+	throw new Error();
 }
 
+const root = result.v;
 
 function loop() {
-	Transform.renderComponents(ctx);
+	root.render(ctx)
 	requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

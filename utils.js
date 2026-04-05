@@ -143,6 +143,10 @@ export class Vector {
 		}
 		return result(new Vector(av.v, bv.v));
 	}
+
+	static zero() {
+		return new Vector(0, 0);
+	}
 }
 registerParser('v', Size.parse);
 

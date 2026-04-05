@@ -14,10 +14,6 @@ export class Component {
 		return this.#transform;
 	}
 
-	createTransform() {
-		return this.#transform.createTransform();
-	}
-
 	/** @param {CanvasRenderingContext2D} ctx */
 	init(ctx) {}
 	/** @param {CanvasRenderingContext2D} ctx */

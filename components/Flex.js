@@ -23,6 +23,7 @@ registerParser('align', (value) => {
 	return error('align can only be start, center or end');
 });
 
+
 /** @implements {Layout} */
 export class Flex extends Component {
 	/** @type {'row' | 'column'} */
@@ -49,34 +50,32 @@ export class Flex extends Component {
 		const hasCrossSize = this.#node.hasCross(node);
 		
 		let fillCount = 0;
-		let childCount = 0;
 		let totalMainSize = 0;
 		let maxCrossSize = 0;
 		const children = node.children;
 		for (const child of children) {
 			resolveChild(child, node);
 			if (child.s$width.isAuto() && !child.hasWidth()) {
-				child.setWidth(0);
+				child.setContentWidth(0);
 			}
 			if (child.s$height.isAuto() && !child.hasHeight()) {
-				child.setHeight(0);
+				child.setContentHeight(0);
 			}
 
 			if (this.#node.getMain(child).isPercent()) {
 				if (hasMainSize) {
 					fillCount += this.#node.getMain(child).value;
-					childCount++;
 				} else {
-					child.setWidth(0);
-					child.setHeight(0);
+					child.setContentWidth(0);
+					child.setContentHeight(0);
 				}
 				continue;
 			}
 			
-			const mainSize = this.#vector.getMain(child.marginSize);
-			const crossSize = this.#vector.getCross(child.marginSize);
+			const marginSize = child.getMarginSize();
+			const mainSize = this.#vector.getMain(marginSize);
+			const crossSize = this.#vector.getCross(marginSize);
 			if (mainSize !== 0) {
-				childCount++;
 				totalMainSize += mainSize;
 				maxCrossSize = Math.max(maxCrossSize, crossSize);
 			}
@@ -87,19 +86,20 @@ export class Flex extends Component {
 		}
 
 		if (!hasMainSize) {
-			const mainSize = totalMainSize + this.n$gap * (childCount - 1);
+			const mainSize = totalMainSize + this.n$gap * (children.length - 1);
 			this.#node.setMain(node, mainSize + this.#edges.getMain(node.e$padding));
 		}
 
-		const totalCrossSize = this.#vector.getCross(node.contentSize);
-		const totalGapSize = this.n$gap * (childCount - 1);
+		const contentSize = node.getContentSize();
+		const totalCrossSize = this.#vector.getCross(contentSize);
+		const totalGapSize = this.n$gap * (children.length - 1);
 
-		const remainingSize = this.#vector.getMain(node.contentSize) - totalMainSize;
+		const remainingSize = this.#vector.getMain(contentSize) - totalMainSize;
 		const fillSize = (remainingSize - totalGapSize) * (fillCount > 1 ? 1 : fillCount);
 		const fillScale = Math.max(1, fillCount);
 		
-		const skip = this.#getCursorSkip(remainingSize - fillSize, childCount, fillSize);
-		let cursor = this.#getCursorStart(remainingSize - fillSize - totalGapSize, childCount, fillSize);
+		const skip = this.#getCursorSkip(remainingSize - fillSize, children.length, fillSize);
+		let cursor = this.#getCursorStart(remainingSize - fillSize - totalGapSize, children.length, fillSize);
 
 		for (let i = 0; i < children.length; i++) {
 			const child = children[i];
@@ -114,16 +114,14 @@ export class Flex extends Component {
 				}
 			}
 
-			const mainSize = this.#vector.getMain(child.marginSize);
-			const crossSize = this.#vector.getCross(child.marginSize);
+			const marginSize = child.getMarginSize();
+			const mainSize = this.#vector.getMain(marginSize);
+			const crossSize = this.#vector.getCross(marginSize);
 			
-			const crossPos = this.align$align === 'start' ?
-				0 :
-				this.align$align === 'center' ?
-					(totalCrossSize - crossSize) * 0.5 :
-					totalCrossSize - crossSize;
-			child.overridePosition = this.#vector.create(cursor, crossPos);
-
+			const crossPos = this.#getCrossPos(totalCrossSize, crossSize)
+			this.#vector.setMain(child.position, cursor);
+			this.#vector.setCross(child.position, crossPos);
+			
 			cursor += mainSize + skip;
 		}
 	}
@@ -175,10 +173,25 @@ export class Flex extends Component {
 		return remainingSize / childCount * 0.5;
 	}
 
+	/**
+	 * @param {number} totalCrossSize
+	 * @param {number} childCrossSize
+	 */
+	#getCrossPos(totalCrossSize, childCrossSize) {
+		if (this.align$align === 'start') {
+			return 0;
+		}
+		if (this.align$align === 'center') {
+			return (totalCrossSize - childCrossSize) * 0.5;
+		}
+		return totalCrossSize - childCrossSize;
+	}
+
 	#node = new NodeHelper(this);
 	#vector = new VectorHelper(this);
 	#edges = new EdgesHelper(this);
 }
+Flex.order = 0;
 registerComponent(Flex);
 
 
@@ -206,9 +219,9 @@ class NodeHelper extends FlexHelper {
 	 */
 	setMain(node, value) {
 		if (this.flex.flexdir$dir === 'row') {
-			node.setWidth(value);
+			node.setPaddingWidth(value);
 		} else {
-			node.setHeight(value);
+			node.setPaddingHeight(value);
 		}
 	}
 	/**
@@ -217,9 +230,9 @@ class NodeHelper extends FlexHelper {
 	 */
 	setCross(node, value) {
 		if (this.flex.flexdir$dir !== 'row') {
-			node.setWidth(value);
+			node.setPaddingWidth(value);
 		} else {
-			node.setHeight(value);
+			node.setPaddingHeight(value);
 		}
 	}
 	/** @param {Transform} node */

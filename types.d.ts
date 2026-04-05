@@ -27,8 +27,12 @@ declare interface Layout {
 }
 
 
-declare interface ComponentConstructor {
-	new(transform: Transform): Component
+declare interface ComponentConstructor<
+	TComponent extends Component = Component,
+	Args extends any[] = []
+> {
+	new(transform: Transform, ...args: Args): TComponent;
+	order: number;
 }
 
 declare type AttributeInfo = {

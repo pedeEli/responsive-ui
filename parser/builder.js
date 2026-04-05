@@ -38,7 +38,7 @@ export function build(root, ctx) {
 		}
 
 		const childNode = currentNode.children[index];
-		const childTransform = currentTransform.createTransform();
+		const childTransform = currentTransform.addChild();
 
 		if (childNode.attributes) {
 			setAttributes(childTransform, childNode.attributes, ctx);
