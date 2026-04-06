@@ -1,40 +1,33 @@
-import {parseAndBuild} from './parser/index.js'
-
+import './layout/index.js';
+import './render/index.js';
+import {Canvas} from './core/Canvas.js';
 
 const canvas = document.querySelector('canvas');
 if (!canvas) {
 	throw new Error('canvas not found!');
 }
 
-const ctx_ = canvas.getContext('2d');
-if (!ctx_) {
+const ctx = canvas.getContext('2d');
+if (!ctx) {
 	throw new Error('could not get context from canvas');
 }
-const ctx = ctx_;
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
-window.addEventListener('resize', () => {
-	canvas.width = window.innerWidth;
-	canvas.height = window.innerHeight;
-});
+Canvas.init(canvas, ctx);
 
-
-const result = parseAndBuild(ctx, `
-	<div bg=lightblue>
-		<div text="hello world" fontSize=40 width=auto height=auto padding=30 bg=orange></div>
+const result = Canvas.build(`
+	<div bg="orange" layout="flex" gap="20" justify="center" align="center">
+		<div width="100px" padding="20 15" fontSize="30" height="100px" bg="lightblue" text="hello" />
+		<div width="100px" padding="20 15" fontSize="30" height="100px" bg="lightblue" text="hello" />
 	</div>
 `);
 
 if (!result.success) {
 	console.error(result.e);
-	throw new Error();
+	throw null;
 }
 
-const root = result.v;
-
-function loop() {
-	root.render(ctx)
-	requestAnimationFrame(loop);
+for (const warning of result.v) {
+	console.warn(warning);
 }
-requestAnimationFrame(loop);
+
+Canvas.run();

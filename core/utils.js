@@ -1,9 +1,9 @@
-import {registerParser} from './parser/attributes.js'
+import {registerAttributeParser} from './attributeParsers.js'
 
 /**
  * @template V
  * @param {V} v
- * @returns {Result<V, any>}
+ * @returns {core.Result<V, any>}
  */
 export function result(v) {
 	return {
@@ -15,7 +15,7 @@ export function result(v) {
 /**
  * @template [E=string]
  * @param {E} e
- * @returns {Result<any, E>}
+ * @returns {core.Result<any, E>}
  */
 export function error(e) {
 	return {
@@ -24,9 +24,11 @@ export function error(e) {
 	};
 }
 
+registerAttributeParser('s', (value) => result(value));
+
 /**
  * @param {string} str
- * @returns {Result<number>}
+ * @returns {core.Result<number>}
  */
 export function parseNumber(str) {
 	if (/^0|-?([1-9][0-9]*(\.[0-9]*[1-9])?|[0-9]?\.[0-9]*[1-9])$/.test(str)) {
@@ -34,7 +36,7 @@ export function parseNumber(str) {
 	}
 	return error('invalid number');
 }
-registerParser('n', parseNumber);
+registerAttributeParser('n', parseNumber);
 
 export class Size {
 	/** @type {'fixed' | 'auto' | 'percent'} */
@@ -79,7 +81,7 @@ export class Size {
 
 	/**
 	 * @param {string} str
-	 * @returns {Result<Size>}
+	 * @returns {core.Result<Size>}
 	 */
 	static parse(str) {
 		str = str.toLowerCase();
@@ -106,7 +108,7 @@ export class Size {
 		return error('unknown size unit');
 	}
 }
-registerParser('s', Size.parse);
+registerAttributeParser('size', Size.parse);
 
 export class Vector {
 	x = 0;
@@ -123,7 +125,7 @@ export class Vector {
 
 	/**
 	 * @param {string} str
-	 * @returns {Result<Vector>}
+	 * @returns {core.Result<Vector>}
 	 */
 	static parse(str) {
 		const [a, b = ''] = str.trim().split(/\s+/);
@@ -148,7 +150,7 @@ export class Vector {
 		return new Vector(0, 0);
 	}
 }
-registerParser('v', Size.parse);
+registerAttributeParser('vec', Size.parse);
 
 export const Anchor = Object.freeze({
 	center: () => new Vector(0.5, 0.5),
@@ -163,7 +165,7 @@ export const Anchor = Object.freeze({
 });
 /**
  * @param {string} str
- * @returns {Result<Vector>}
+ * @returns {core.Result<Vector>}
  */
 export function parseAnchor(str) {
 	if (str in Anchor) {
@@ -171,7 +173,7 @@ export function parseAnchor(str) {
 	}
 	return Vector.parse(str);
 }
-registerParser('a', parseAnchor);
+registerAttributeParser('anchor', parseAnchor);
 
 export class Edges {
 	top = 0;
@@ -205,7 +207,7 @@ export class Edges {
 
 	/**
 	 * @param {string} str
-	 * @returns {Result<Edges>}
+	 * @returns {core.Result<Edges>}
 	 */
 	static parse(str) {
 		const parts = str.trim().split(/\s+/);
@@ -240,7 +242,7 @@ export class Edges {
 		return error('invalid edges');
 	}
 }
-registerParser('e', Edges.parse);
+registerAttributeParser('edges', Edges.parse);
 
 export class Rect {
 	x = 0;

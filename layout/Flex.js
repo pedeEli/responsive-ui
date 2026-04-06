@@ -1,22 +1,22 @@
-/** @import {Transform} from './Transform.js' */
-/** @import {Edges} from '../utils.js' */
-import {Component, registerComponent} from './Component.js'
-import {Vector, error, result} from '../utils.js'
-import {registerParser} from '../parser/attributes.js'
+/** @import {Transform} from '../core/Transform.js' */
+/** @import {Edges} from '../core/utils.js' */
+import {Layout, registerLayout} from '../core/Layout.js'
+import {Vector, error, result} from '../core/utils.js'
+import {registerAttributeParser} from '../core/attributeParsers.js'
 
-registerParser('flexdir', (value) => {
+registerAttributeParser('flexdir', (value) => {
 	if (/^row|column$/.test(value)) {
 		return result(value);
 	}
 	return error('flex direction can only be row or column');
 });
-registerParser('justify', (value) => {
+registerAttributeParser('justify', (value) => {
 	if (/^start|center|end|space-between|space-around$/.test(value)) {
 		return result(value);
 	}
 	return error('justify can only be start, center, end, space-between or space-around');
 });
-registerParser('align', (value) => {
+registerAttributeParser('align', (value) => {
 	if (/^start|center|end$/.test(value)) {
 		return result(value);
 	}
@@ -24,8 +24,7 @@ registerParser('align', (value) => {
 });
 
 
-/** @implements {Layout} */
-export class Flex extends Component {
+export class Flex extends Layout {
 	/** @type {'row' | 'column'} */
 	flexdir$dir = 'row';
 	n$gap = 0;
@@ -33,12 +32,6 @@ export class Flex extends Component {
 	justify$justify = 'start';
 	/** @type {'start' | 'center' | 'end'} */
 	align$align = 'start';
-
-	/** @param {Transform} transform */
-	constructor(transform) {
-		super(transform);
-		transform.layout = this;
-	}
 
 
 	/**
@@ -55,10 +48,10 @@ export class Flex extends Component {
 		const children = node.children;
 		for (const child of children) {
 			resolveChild(child, node);
-			if (child.s$width.isAuto() && !child.hasWidth()) {
+			if (child.size$width.isAuto() && !child.hasWidth()) {
 				child.setContentWidth(0);
 			}
-			if (child.s$height.isAuto() && !child.hasHeight()) {
+			if (child.size$height.isAuto() && !child.hasHeight()) {
 				child.setContentHeight(0);
 			}
 
@@ -82,12 +75,12 @@ export class Flex extends Component {
 		}
 
 		if (!hasCrossSize) {
-			this.#node.setCross(node, maxCrossSize + this.#edges.getCross(node.e$padding));
+			this.#node.setCross(node, maxCrossSize + this.#edges.getCross(node.edges$padding));
 		}
 
 		if (!hasMainSize) {
 			const mainSize = totalMainSize + this.n$gap * (children.length - 1);
-			this.#node.setMain(node, mainSize + this.#edges.getMain(node.e$padding));
+			this.#node.setMain(node, mainSize + this.#edges.getMain(node.edges$padding));
 		}
 
 		const contentSize = node.getContentSize();
@@ -119,8 +112,8 @@ export class Flex extends Component {
 			const crossSize = this.#vector.getCross(marginSize);
 			
 			const crossPos = this.#getCrossPos(totalCrossSize, crossSize)
-			this.#vector.setMain(child.position, cursor);
-			this.#vector.setCross(child.position, crossPos);
+			const position = this.#vector.create(cursor, crossPos);
+			child.overridePosition(position.x, position.y);
 			
 			cursor += mainSize + skip;
 		}
@@ -191,8 +184,6 @@ export class Flex extends Component {
 	#vector = new VectorHelper(this);
 	#edges = new EdgesHelper(this);
 }
-Flex.order = 0;
-registerComponent(Flex);
 
 
 class FlexHelper {
@@ -207,11 +198,11 @@ class FlexHelper {
 class NodeHelper extends FlexHelper {
 	/** @param {Transform} node */
 	getMain(node) {
-		return this.flex.flexdir$dir === 'row' ? node.s$width : node.s$height;
+		return this.flex.flexdir$dir === 'row' ? node.size$width : node.size$height;
 	}
 	/** @param {Transform} node */
 	getCross(node) {
-		return this.flex.flexdir$dir !== 'row' ? node.s$width : node.s$height;
+		return this.flex.flexdir$dir !== 'row' ? node.size$width : node.size$height;
 	}
 	/**
 	 * @param {Transform} node
@@ -296,3 +287,5 @@ class EdgesHelper extends FlexHelper {
 		return this.flex.flexdir$dir !== 'row' ? edges.xaxis : edges.yaxis;
 	}
 }
+
+registerLayout('flex', Flex);

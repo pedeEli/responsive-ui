@@ -1,5 +1,4 @@
 /** @import {Transform} from './Transform.js' */
-export {registerComponent} from '../parser/attributes.js'
 
 export class Component {
 	/** @type {Transform} */
@@ -13,9 +12,4 @@ export class Component {
 	get transform() {
 		return this.#transform;
 	}
-
-	/** @param {CanvasRenderingContext2D} ctx */
-	init(ctx) {}
-	/** @param {CanvasRenderingContext2D} ctx */
-	render(ctx) {}
 }
