@@ -21,7 +21,7 @@ export class Canvas {
 		Canvas.#ctx = ctx;
 
 		Canvas.#resize();
-		window.addEventListener('resize', Canvas.#resize);
+		canvas.addEventListener('resize', Canvas.#resize);
 	}
 
 	/**
