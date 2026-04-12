@@ -182,6 +182,11 @@ function* pop() {
 function* parseString() {
 	yield* eat('"');
 
+	if (yield* match('"')) {
+		yield* eat('"');
+		return '';
+	}
+
 	let value = yield* eatUntil(/[^\\]"/g);
 	const state = yield;
 	if (state.index >= state.str.length) {
@@ -259,7 +264,10 @@ function* node() {
 
 		if (yield* match('=')) {
 			yield* eat('=');
-			const value = yield* sourceRegion(parseString);
+			const value = yield* tryParser(sourceRegion, parseString);
+			if (!value) {
+				yield* warn('expected attribute value');
+			}
 			node.attributes.push({
 				name,
 				value

@@ -3,6 +3,7 @@ declare namespace textarea {
 		element: HTMLElement;
 		start: number;
 		end: number;
+		length: number;
 		children: Array<{
 			node: Text;
 			start: number;
@@ -12,7 +13,6 @@ declare namespace textarea {
 
 	type Highlight = {
 		type: 'string' | 'tag';
-		start: number;
-		end: number;
+		region: parser.SourceRegion<null>;
 	};
 }
