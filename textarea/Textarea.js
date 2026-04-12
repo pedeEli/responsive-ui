@@ -13,6 +13,9 @@ export class Textarea {
 	#cursorIndex = 0;
 	/** @type {textarea.LineInfo[]}} */
 	#lines = [];
+
+	/** @type {null | ((nodes: parser.Node[]) => void)} */
+	onupdate = null;
 	
 	/** @param {HTMLElement} root */
 	constructor(root) {
@@ -126,7 +129,7 @@ export class Textarea {
 			}
 		}
 
-		return result;
+		this.onupdate?.(result.nodes);
 	}
 
 	/** @returns {HTMLElement} */
@@ -202,11 +205,7 @@ export class Textarea {
 			return;
 		}
 
-		if (event.key === 'Enter') {
-
-		} else if (event.key === 'Backspace') {
-
-		} else {
+		if (event.key.length === 1) {
 			const front = this.#value.substring(0, this.#cursorIndex);
 			const end = this.#value.substring(this.#cursorIndex);
 			const newValue = front + event.key + end;

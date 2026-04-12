@@ -33,40 +33,40 @@ export class Canvas {
 	}
 
 	/**
-	 * @param {parser_old.Node[]} nodes
+	 * @param {parser.Node[]} nodes
 	 * @returns {core.Result<string[], string>}
 	 */
 	static build(nodes) {
-		if (!Canvas.#ctx) {
+		if (!Canvas.#ctx || !Canvas.#canvas) {
 			return error('Canvas was not initialized');
 		}
 
 		const buildResult = build(Canvas.#ctx, nodes);
 		if (buildResult.success) {
 			Canvas.#root = buildResult.v.root;
-			Canvas.setDirty();
+			Canvas.#root.init();
+			Canvas.#resize(new Vector(Canvas.#canvas.width, Canvas.#canvas.height));
 			return result(buildResult.v.warnings);
 		}
 		return buildResult;
 	}
 
 	static run() {
-		if (!Canvas.#root) {
-			return;
+		requestAnimationFrame(Canvas.#loop);
+	}
+
+	static #loop() {
+		if (Canvas.#newSize) {
+			Canvas.#resize(Canvas.#newSize);
+			Canvas.#newSize = null;
 		}
 
-		const root = Canvas.#root;
-		root.init();
-		function loop() {
-			if (Canvas.#newSize) {
-				Canvas.#resize(Canvas.#newSize);
-				Canvas.#newSize = null;
-			}
-
-			root.render()
-			requestAnimationFrame(loop);
+		if (Canvas.#canvas && Canvas.#ctx) {
+			Canvas.#ctx.clearRect(0, 0, Canvas.#canvas.width, Canvas.#canvas.height);
 		}
-		requestAnimationFrame(loop);
+
+		Canvas.#root?.render();
+		requestAnimationFrame(Canvas.#loop);
 	}
 
 	static setDirty() {

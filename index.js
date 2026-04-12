@@ -39,12 +39,11 @@ function init() {
 	Canvas.init(canvas, ctx);
 	
 	const textarea = new Textarea(xmlInput);
+	textarea.onupdate = (nodes) => {
+		Canvas.build(nodes);
+	}
 
-	const parseResult = textarea.parse(defaultXml);
-	console.log(parseResult);
-
-	const warnings = Canvas.build(parseResult.nodes);
-	console.log({warnings});
+	textarea.parse(defaultXml);
 	Canvas.run();
 
 	// xmlInput.value = defaultXml;

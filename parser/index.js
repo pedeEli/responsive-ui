@@ -283,7 +283,9 @@ function* node() {
 		node.parent = parent;
 	}
 	
-	yield* push(node);
+	if (!node.selfClosing) {
+		yield* push(node);
+	}
 	yield* skipWhitespace();
 }
 
