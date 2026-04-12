@@ -1,17 +1,28 @@
 import './layout/index.js';
 import './render/index.js';
 import {Canvas} from './core/Canvas.js';
+import {Textarea} from './textarea/Textarea.js';
 
 
-const defaultXml = `<div bg="orange" layout="flex" gap="20" justify="center" align="center">
-  <div width="100px" padding="20 15" fontSize="30" height="100px" bg="lightblue" text="hello" />
-  <div width="100px" padding="20 15" fontSize="30" height="100px" bg="lightblue" text="hello" />
+const defaultXml = `<div
+  bg="orange" layout="flex" gap="20"
+  justify="center" align="center"
+>
+  <div
+    width="100px" height="100px" padding="20 15"
+    fontSize="30" bg="lightblue" text="hello"
+  />
+
+  <div
+    width="100px" height="100px" padding="20 15"
+    fontSize="30" bg="lightblue" text="hello"
+  />
 </div>`;
 
 function init() {
 	/** @type {HTMLCanvasElement | null} */
 	const canvas = document.querySelector('#canvas');
-	/** @type {HTMLTextAreaElement | null} */
+	/** @type {HTMLElement | null} */
 	const xmlInput = document.querySelector('#xml-input');
 
 	if (!canvas || !xmlInput) {
@@ -25,18 +36,38 @@ function init() {
 		return;
 	}
 
-	xmlInput.value = defaultXml;
-
 	Canvas.init(canvas, ctx);
-	Canvas.build(defaultXml);
+	
+	const textarea = new Textarea(xmlInput);
+
+	const parseResult = textarea.parse(defaultXml);
+	console.log(parseResult);
+
+	const warnings = Canvas.build(parseResult.nodes);
+	console.log({warnings});
 	Canvas.run();
 
-	xmlInput.addEventListener('input', async () => {
-		const output = Canvas.build(xmlInput.value);
-		console.log(output);
-		Canvas.run();
-	})
+	// xmlInput.value = defaultXml;
+
+	// Canvas.init(canvas, ctx);
+	// Canvas.build(defaultXml);
+	// Canvas.run();
+
+	// xmlInput.addEventListener('input', async () => {
+	// 	const output = Canvas.build(xmlInput.value);
+	// 	console.log(output);
+	// 	Canvas.run();
+	// })
 	
 
 }
 init();
+
+// import {parse} from './parser/index.js';
+
+// const result = parse(`
+// 	<div foo bar="baz">
+// 		<p></p>
+	
+// `);
+// console.log(result);

@@ -1,6 +1,5 @@
 /** @import {RenderComponent} from './RenderComponent.js' */
 import {Transform} from './Transform.js';
-import {parse} from './xmlParser.js';
 import {error, result} from './utils.js';
 import {getDefaultLayout, getLayout} from './Layout.js';
 import {getAttributeInfos, getRenderComponent} from './RenderComponent.js';
@@ -9,55 +8,36 @@ import {transformAttributeInfos} from './Transform.js';
 
 /**
  * @param {CanvasRenderingContext2D} ctx
- * @param {string} str
+ * @param {parser.Node[]} nodes
  * @returns {core.Result<{root: Transform, warnings: string[]}>}
  */
-export function build(ctx, str) {
-	const parseResult = parse(str);
-	
-	if (!parseResult.success) {
-		const lines = str.split('\n');
-		let message = '';
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i].replaceAll('\t', ' ');
-			message += line + '\n';
-			if (i + 1 === parseResult.e.line) {
-				message += ' '.repeat(parseResult.e.column + lines[i].length - line.length - 1);
-				message += '^ ' + parseResult.e.message + '\n';
-			}
-		}
-		return error(message);
-	}
-
+export function build(ctx, nodes) {
 	const defaultLayout = getDefaultLayout();
 	if (!defaultLayout) {
 		return error('no default layout was registered');
 	}
 	const root = new Transform(new defaultLayout.Layout());
 
-	const construction = constructTree(root, parseResult.v, ctx);
-	if (!construction.success) {
-		return construction;
-	}
-
-	return result({root, warnings: construction.v.warnings});
+	const warnings = constructTree(root, nodes, ctx);
+	return result({root, warnings});
 }
 
 /**
  * @param {Transform} parent
- * @param {core.XMLNode[]} children
+ * @param {parser.Node[]} children
  * @param {CanvasRenderingContext2D} ctx
- * @returns {core.Result<{warnings: string[]}>}
+ * @returns {string[]}
  */
 function constructTree(parent, children, ctx) {
 	/** @type {string[]} */
 	const warnings = [];
 
 	for (const child of children) {
-		const layoutName = child.attributes.get('layout');
-		const layoutInfo = layoutName ? getLayout(layoutName) : getDefaultLayout();
+		const layoutName = child.attributes.find(attr => attr.name.value === 'layout');
+		const layoutInfo = layoutName?.value ? getLayout(layoutName.value.value) : getDefaultLayout();
 		if (!layoutInfo) {
-			return error(`no '${layoutName ?? 'default'}' layout was registered`)
+			warnings.push(`no '${layoutName ?? 'default'}' layout was registered`);
+			return warnings;
 		}
 
 		const layout = new layoutInfo.Layout();
@@ -65,53 +45,23 @@ function constructTree(parent, children, ctx) {
 		/** @type {Map<number, RenderComponent>} */
 		const addedComponents = new Map();
 		
-		for (const [key, value] of child.attributes) {
-			if (key === 'layout') {
+		for (const attr of child.attributes) {
+			if (attr.name.value === 'layout') {
 				continue;
 			}
 			let keyWasUsed = false;
-			{
-				const index = transformAttributeInfos.lookupTable.get(key);
-				if (index !== undefined) {
-					const attrInfo = transformAttributeInfos.infos[index];
-					const parser = getAttributeParser(attrInfo.type);
-					if (parser) {
-						const parseResult = parser(value);
-						if (parseResult.success) {
-							/** @type {any} */ (childTransform)[attrInfo.fieldName] = parseResult.v;
-						} else {
-							warnings.push(parseResult.e);
-						}
-					} else {
-						warnings.push(`unknown parser type '${attrInfo.type}'`);
-					}
-					keyWasUsed = true;
-				}
+			if (applyAttrUsingInfos(transformAttributeInfos, childTransform, attr, warnings)) {
+				keyWasUsed = true;
 			}
 
-			{
-				const index = layoutInfo.attributeInfos.lookupTable.get(key);
-				if (index !== undefined) {
-					const attrInfo = layoutInfo.attributeInfos.infos[index];
-					const parser = getAttributeParser(attrInfo.type);
-					if (parser) {
-						const parseResult = parser(value);
-						if (parseResult.success) {
-							/** @type {any} */ (layout)[attrInfo.fieldName] = parseResult.v;
-						} else {
-							warnings.push(parseResult.e);
-						}
-					} else {
-						warnings.push(`unknown parser type '${attrInfo.type}'`);
-					}
-					keyWasUsed = true;
-				}
+			if (applyAttrUsingInfos(layoutInfo.attributeInfos, layout, attr, warnings)) {
+				keyWasUsed = true;
 			}
 
-			const attributeInfos = getAttributeInfos(key);
+			const attributeInfos = getAttributeInfos(attr.name.value);
 			if (!attributeInfos) {
 				if (!keyWasUsed) {
-					warnings.push(`unrecognized attribute name '${key}'`);
+					warnings.push(`unrecognized attribute name '${attr.name.value}'`);
 				}
 				continue;
 			}
@@ -123,27 +73,65 @@ function constructTree(parent, children, ctx) {
 					component = childTransform.addComponent(RenderComponent, ctx);
 					addedComponents.set(index, component);
 				}
-				const parser = getAttributeParser(attributeInfo.type);
-				if (parser) {
-					const parseResult = parser(value);
-					if (parseResult.success) {
-						/** @type {any} */(component)[attributeInfo.fieldName] = parseResult.v;
-					} else {
-						warnings.push(parseResult.e);
-					}
-				} else {
-					warnings.push(`unknown parser type '${attributeInfo.type}'`);
-				}
+				applyAttrUsingInfo(attributeInfo, component, attr, warnings);
 			}
 		}
 
-		const result = constructTree(childTransform, child.children, ctx);
-		if (result.success) {
-			warnings.push(...result.v.warnings);
-		} else {
-			return result;
+		if (!child.children) {
+			continue;
 		}
+
+		const result = constructTree(childTransform, /** @type {any} */ (child.children), ctx);
+		warnings.push(...result);
 	}
 
-	return result({warnings});
+	return warnings;
+}
+
+
+/**
+ * @param {ReturnType<import('./RenderComponent.js').extractAttributeInfos>} attrInfos
+ * @param {object} obj
+ * @param {parser.Attribute} attr
+ * @param {string[]} warnings
+ * @returns {boolean}
+ */
+function applyAttrUsingInfos(attrInfos, obj, attr, warnings) {
+	const index = attrInfos.lookupTable.get(attr.name.value);
+	if (index === undefined) {
+		return false;
+	}
+	
+	const attrInfo = attrInfos.infos[index];
+	
+	return applyAttrUsingInfo(attrInfo, obj, attr, warnings);
+}
+
+/**
+ * @param {core.AttributeInfo} attrInfo
+ * @param {object} obj
+ * @param {parser.Attribute} attr
+ * @param {string[]} warnings
+ * @returns {boolean}
+ */
+function applyAttrUsingInfo(attrInfo, obj, attr, warnings) {
+	if (!attr.value) {
+		/** @type {any} */ (obj)[attrInfo.fieldName] = true;
+		return true;
+	}
+
+	const parser = getAttributeParser(attrInfo.type);
+	if (!parser) {
+		warnings.push(`unknown parser type '${attrInfo.type}'`);
+		return true;
+	}
+
+	const parseResult = parser(attr.value.value);
+	if (parseResult.success) {
+		/** @type {any} */ (obj)[attrInfo.fieldName] = parseResult.v;
+		return true;
+	}
+
+	warnings.push(parseResult.e);
+	return true;
 }

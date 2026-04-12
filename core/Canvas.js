@@ -1,6 +1,6 @@
 /** @import {Transform} from './Transform.js' */
 import {build} from './builder.js';
-import {result, error} from './utils.js';
+import {result, error, Vector} from './utils.js';
 
 export class Canvas {
 	/** @type {null | Transform} */
@@ -12,6 +12,11 @@ export class Canvas {
 
 	static #dirty = false;
 
+	/** @type {null | ResizeObserver} */
+	static #resizeObserver = null;
+	/** @type {null | Vector} */
+	static #newSize = null;
+
 	/**
 	 * @param {HTMLCanvasElement} canvas
 	 * @param {CanvasRenderingContext2D} ctx
@@ -20,23 +25,25 @@ export class Canvas {
 		Canvas.#canvas = canvas;
 		Canvas.#ctx = ctx;
 
-		Canvas.#resize();
-		canvas.addEventListener('resize', Canvas.#resize);
+		const rect = Canvas.#canvas.getBoundingClientRect();
+		Canvas.#resize(new Vector(rect.width, rect.height));
+		new ResizeObserver(([e]) => {
+			Canvas.#newSize = new Vector(e.contentRect.width, e.contentRect.height);
+		}).observe(Canvas.#canvas);
 	}
 
 	/**
-	 * @param {string} str
+	 * @param {parser_old.Node[]} nodes
 	 * @returns {core.Result<string[], string>}
 	 */
-	static build(str) {
+	static build(nodes) {
 		if (!Canvas.#ctx) {
 			return error('Canvas was not initialized');
 		}
 
-		const buildResult = build(Canvas.#ctx, str);
+		const buildResult = build(Canvas.#ctx, nodes);
 		if (buildResult.success) {
 			Canvas.#root = buildResult.v.root;
-			Canvas.#resize();
 			Canvas.setDirty();
 			return result(buildResult.v.warnings);
 		}
@@ -51,6 +58,11 @@ export class Canvas {
 		const root = Canvas.#root;
 		root.init();
 		function loop() {
+			if (Canvas.#newSize) {
+				Canvas.#resize(Canvas.#newSize);
+				Canvas.#newSize = null;
+			}
+
 			root.render()
 			requestAnimationFrame(loop);
 		}
@@ -64,18 +76,18 @@ export class Canvas {
 		}
 	}
 
-	static #resize() {
+	/** @param {Vector} size */
+	static #resize(size) {
 		if (!Canvas.#canvas || !Canvas.#ctx) {
 			return;
 		}
 
-		const {width, height} = Canvas.#canvas.getBoundingClientRect();
-		Canvas.#canvas.width = width;
-		Canvas.#canvas.height = height;
+		Canvas.#canvas.width = size.x;
+		Canvas.#canvas.height = size.y;
 		
 		if (Canvas.#root) {
-			Canvas.#root.setPaddingWidth(width);
-			Canvas.#root.setPaddingHeight(height);
+			Canvas.#root.setPaddingWidth(size.x);
+			Canvas.#root.setPaddingHeight(size.y);
 			Canvas.setDirty();
 		}
 	}

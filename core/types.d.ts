@@ -23,16 +23,4 @@ declare namespace core {
 		fieldName: string;
 		type: string;
 	};
-
-	type XMLNode = {
-		type: string;
-		attributes: Map<string, string>;
-		children: XMLNode[];
-	}
-
-	type ParseError = {
-		line: number;
-		column: number;
-		message: string;
-	};
 }
