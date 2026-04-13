@@ -1,7 +1,7 @@
 import './layout/index.js';
 import './render/index.js';
 import {Canvas} from './core/Canvas.js';
-import {Textarea} from './textarea/Textarea.js';
+import {Textarea} from './textarea/Textarea2.js';
 
 
 const defaultXml = `<div
@@ -39,11 +39,12 @@ function init() {
 	Canvas.init(canvas, ctx);
 	
 	const textarea = new Textarea(xmlInput);
-	textarea.onupdate = (nodes) => {
-		Canvas.build(nodes);
-	}
+	textarea.value = defaultXml;
+	// textarea.onupdate = (nodes) => {
+	// 	Canvas.build(nodes);
+	// }
 
-	textarea.parse(defaultXml);
+	// textarea.parse(defaultXml);
 	Canvas.run();
 
 	// xmlInput.value = defaultXml;

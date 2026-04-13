@@ -115,8 +115,16 @@ function applyAttrUsingInfos(attrInfos, obj, attr, warnings) {
  * @returns {boolean}
  */
 function applyAttrUsingInfo(attrInfo, obj, attr, warnings) {
-	if (!attr.value) {
+	if (attrInfo.type === 'b') {
+		if (attr.value) {
+			warnings.push(`expected boolean value`);
+			return true;
+		}
 		/** @type {any} */ (obj)[attrInfo.fieldName] = true;
+		return true;
+	}
+	if (!attr.value) {
+		warnings.push(`unexpected boolean value`);
 		return true;
 	}
 

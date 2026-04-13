@@ -13,6 +13,8 @@ export class Textarea {
 	/** @type {textarea.LineInfo[]}} */
 	#lines = [];
 
+	#pointerdown = false;
+
 	/** @type {null | ((nodes: parser.Node[]) => void)} */
 	onupdate = null;
 	
@@ -25,8 +27,10 @@ export class Textarea {
 		this.#cursor = new Cursor(Textarea.#createCursor(), this);
 		this.#root.append(this.#cursor.element);
 
-		window.addEventListener('pointerdown', this.#windowPointerdownHandle.bind(this));
-		window.addEventListener('keydown', this.#windowKeydownHandle.bind(this));
+		window.addEventListener('pointerdown', this.#pointerdownHandle.bind(this));
+		window.addEventListener('pointerup', this.#pointerupHandle.bind(this));
+		window.addEventListener('pointermove', this.#pointermoveHandle.bind(this));
+		window.addEventListener('keydown', this.#keydownHandle.bind(this));
 	}
 
 	/** @param {string} text */
@@ -152,7 +156,8 @@ export class Textarea {
 				}
 
 				const span = document.createElement('span');
-				span.dataset.type = type;
+				span.dataset.highlight = type;
+				span.dataset.type = 'segment';
 				const text = line.substring(region.start.column, region.end.column);
 				const node = document.createTextNode(text);
 				span.append(node);
@@ -178,7 +183,26 @@ export class Textarea {
 	static #createLine() {
 		const element = document.createElement('div');
 		element.classList.add('line');
+		element.dataset.type = 'line';
 		return element;
+	}
+
+	#windowPointerupHandle() {
+		this.#pointerdown = false;
+	}
+
+	/** @param {PointerEvent} event */
+	#windowPointermoveHandle(event) {
+		if (!this.#pointerdown) {
+			return;
+		}
+
+		const pos = document.caretPositionFromPoint(event.x, event.y);
+		if (!pos || !this.#textbox.contains(pos.offsetNode)) {
+			return;
+		}
+
+		this.#cursor.index = this.#getIndexByNodeAndOffset(pos.offsetNode, pos.offset);
 	}
 
 	/** @param {PointerEvent} event */
@@ -188,20 +212,22 @@ export class Textarea {
 		}
 
 		if (this.#root.contains(event.target)) {
-			this.#pointerdown(event.x, event.y);
+			this.#pointerdownHandle(event.x, event.y);
 		} else {
-			this.#blur();
+			this.#blurHandle();
 		}
 	}
-
 	/**
 	 * @param {number} x
 	 * @param {number} y
 	 */
-	#pointerdown(x, y) {
+	#pointerdownHandle(x, y) {
+		this.#pointerdown = true;
 		if (!this.#focused) {
 			this.#focused = true;
 		}
+
+		document.body.style.userSelect = 'none';
 		this.#cursor.show();
 		
 		const pos = document.caretPositionFromPoint(x, y);
@@ -209,29 +235,43 @@ export class Textarea {
 			return;
 		}
 
-		for (const line of this.#lines) {
-			if (line.element.contains(pos.offsetNode)) {
-				let start = line.start;
-				for (const child of line.children) {
-					if (child.node.contains(pos.offsetNode)) {
-						start += pos.offset;
-						break;
-					}
-					start = child.end;
-				}
-				this.#cursor.index = start;
-				break;
-			}
+		const index = this.#getIndexByNodeAndOffset(pos.offsetNode, pos.offset);
+		if (index !== -1) {
+			this.#cursor.index = index;
 		}
 	}
 
-	#blur() {
+	#blurHandle() {
 		if (!this.#focused) {
 			return;
 		}
 
+		document.body.style.userSelect = 'text';
+
 		this.#focused = false;
 		this.#cursor.hide();
+	}
+
+	/**
+	 * @param {Node} node
+	 * @param {number} offset
+	 */
+	#getIndexByNodeAndOffset(node, offset) {
+		let index = -1;
+		for (const line of this.#lines) {
+			if (line.element.contains(node)) {
+				index = line.start;
+				for (const child of line.children) {
+					if (child.node.contains(node)) {
+						index += offset;
+						break;
+					}
+					index = child.end;
+				}
+				break;
+			}
+		}
+		return index;
 	}
 
 	/** @param {KeyboardEvent} event */
@@ -241,25 +281,97 @@ export class Textarea {
 		}
 
 		if (event.key.length === 1 || event.key === 'Enter') {
-			const front = this.#value.substring(0, this.#cursor.index);
+			let index = this.#cursor.index;
+			const selection = this.#getSelection();
+			if (selection) {
+				index = this.#removeRange(index, selection.start, selection.end);
+			}
+
+			const front = this.#value.substring(0, index);
 			const key = event.key === 'Enter' ? '\n' : event.key;
-			const back = this.#value.substring(this.#cursor.index);
+			const back = this.#value.substring(index);
 			this.parse(front + key + back);
-			this.#cursor.index++;
-		} else if (event.key === 'Backspace') {
-			const front = this.#value.substring(0, this.#cursor.index - 1);
-			const back = this.#value.substring(this.#cursor.index);
-			this.parse(front + back);
-			this.#cursor.index--;
+			this.#cursor.index = index + 1;
+		} else if (event.key === 'Backspace' || event.key === 'Delete') {
+			let index = this.#cursor.index;
+			const selection = this.#getSelection();
+			if (selection) {
+				index = this.#removeRange(index, selection.start, selection.end);
+				this.parse(this.#value);
+			} else {
+				if (event.key === 'Delete') {
+					index++;
+				}
+				const front = this.#value.substring(0, index - 1);
+				const back = this.#value.substring(index);
+				this.#value = front + back;
+				index--;
+			}
+			this.parse(this.#value);
+			this.#cursor.index = index;
 		} else if (event.key === 'ArrowLeft') {
 			this.#cursor.index--;
+			if (!event.shiftKey) {
+				this.#setRangeStart();
+			}
 		} else if (event.key === 'ArrowRight') {
 			this.#cursor.index++;
+			if (!event.shiftKey) {
+				this.#setRangeStart();
+			}
 		} else if (event.key === 'ArrowUp') {
 			this.#cursor.up();
+			if (!event.shiftKey) {
+				this.#setRangeStart();
+			}
 		} else if (event.key === 'ArrowDown') {
 			this.#cursor.down();
+			if (!event.shiftKey) {
+				this.#setRangeStart();
+			}
 		}
+	}
+
+	#getSelection() {
+		const ranges = document.getSelection()?.getComposedRanges();
+		if (!ranges || ranges.length === 0) {
+			return null;
+		}
+		const start = this.#getIndexByNodeAndOffset(ranges[0].startContainer, ranges[0].startOffset);
+		const end = this.#getIndexByNodeAndOffset(ranges[0].endContainer, ranges[0].endOffset);
+		if (start === end) {
+			return null;
+		}
+		return {start, end};
+	}
+
+	/**
+	 * @param {number} index
+	 * @param {number} start
+	 * @param {number} end
+	 * @returns {number}
+	 */
+	#removeRange(index, start, end) {
+		this.#value = this.#value.substring(0, start) + this.#value.substring(end);
+		if (index > end) {
+			index -= end - start;
+		} else if (index > start) {
+			index = start;
+		}
+		return index;
+	}
+
+	#setRangeStart() {
+		const selection = document.getSelection();
+		const node = this.#cursor.node;
+		if (!selection || !node) {
+			return;
+		}
+
+		const range = document.createRange();
+		range.setStart(node, this.#cursor.offset);
+		selection.removeAllRanges();
+		selection.addRange(range);
 	}
 
 	static #createCursor() {
@@ -274,6 +386,7 @@ export class Textarea {
 		const area = document.createElement('div');
 		area.role = 'textbox';
 		area.classList.add('textbox');
+		area.dataset.type = 'textbox';
 		return area;
 	}
 
@@ -290,6 +403,10 @@ class Cursor {
 	#index = 0;
 	#line = 0;
 	#column = 0;
+	
+	/** @type {null | Node} */
+	#node = null;
+	#offset = 0;
 
 	/** @type {HTMLElement} */
 	element;
@@ -374,10 +491,17 @@ class Cursor {
 			const rect = range.getBoundingClientRect();
 			left = rect.right - parent.left;
 			top = rect.top - parent.top;
+			
+			this.#node = child.node;
+			this.#offset = offset;
+			
 			break;
 		}
 
 		if (!positionSet) {
+			this.#offset = 0;
+			this.#node = line.element;
+
 			const rect = line.element.getBoundingClientRect();
 			top = rect.top - parent.top;
 			left = rect.left - parent.left;
@@ -388,5 +512,12 @@ class Cursor {
 		this.show();
 	}
 
+
+	get node() {
+		return this.#node;
+	}
+	get offset() {
+		return this.#offset;
+	}
 	
 }

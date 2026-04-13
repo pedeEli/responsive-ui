@@ -60,6 +60,7 @@
 		border-radius: 0.25rem;
 		position: relative;
 		overflow-y: auto;
+		user-select: text;
 		
 		.textbox {
 			padding-inline: 0.5rem;
@@ -69,11 +70,11 @@
 			.line {
 				white-space: pre;
 
-				[data-type="tag"] {
+				[data-highlight="tag"] {
 					color: orange;
 				}
 		
-				[data-type="string"] {
+				[data-highlight="string"] {
 					color: lightgreen;
 				}
 			}
