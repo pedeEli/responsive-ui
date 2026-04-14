@@ -16,6 +16,9 @@ export class Textarea {
 
 	#value = '';
 
+	/** @type {null | ((nodes: parser.Node[]) => void)} */
+	onupdate = null;
+
 	/** @param {HTMLElement} root */
 	constructor(root) {
 		this.#root = root;
@@ -180,18 +183,22 @@ export class Textarea {
 			return;
 		}
 
-		const hasSelection = selection.direction !== 'none';
+		const range = selection.getRangeAt(0);
+		const hasSelection = range.startContainer !== range.endContainer || range.startOffset !== range.endOffset;
 
 		if (hasSelection) {
 			// delete selection
-			const range = selection.getRangeAt(0);
 			const start = this.#getStart(range.startContainer) + range.startOffset;
 			const end = this.#getStart(range.endContainer) + range.endOffset;
 			this.value = this.#value.substring(0, start) + this.#value.substring(end);
 
 			let r = this.#getRangeFromIndex(start);
 			if (r) {
-				this.#setCursorWithRect(r.getBoundingClientRect());
+				if (r.startContainer instanceof Element) {
+					this.#setCursorWithRect(r.startContainer.getBoundingClientRect());
+				} else {
+					this.#setCursorWithRect(r.getBoundingClientRect());
+				}
 				selection.removeAllRanges();
 				selection.addRange(r);
 			}
@@ -201,7 +208,6 @@ export class Textarea {
 			return;
 		}
 
-		const range = selection.getRangeAt(0);
 		let index = this.#getStart(range.startContainer) + range.startOffset;
 
 		if (event.key === 'Backspace') {
@@ -210,13 +216,18 @@ export class Textarea {
 		} else if (event.key === 'Delete') {
 			this.value = this.#value.substring(0, index) + this.#value.substring(index + 1);
 		} else {
-			this.value = this.#value.substring(0, index) + event.key + this.#value.substring(index);
+			const char = event.key === 'Enter' ? '\n' : event.key;
+			this.value = this.#value.substring(0, index) + char + this.#value.substring(index);
 			index++;
 		}
 
 		const r = this.#getRangeFromIndex(index);
 		if (r) {
-			this.#setCursorWithRect(r.getBoundingClientRect());
+			if (r.startContainer instanceof Element) {
+				this.#setCursorWithRect(r.startContainer.getBoundingClientRect());
+			} else {
+				this.#setCursorWithRect(r.getBoundingClientRect());
+			}
 			selection.removeAllRanges();
 			selection.addRange(r);
 		}
@@ -239,6 +250,7 @@ export class Textarea {
 			console.error(warning);
 		}
 
+		this.onupdate?.(result.nodes);
 		if (result.nodes.length === 0) {
 			return;
 		}
@@ -440,6 +452,12 @@ export class Textarea {
 				continue;
 			}
 
+			if (start + 1 === end) {
+				const range = document.createRange();
+				range.setStart(line, 0);
+				return range;
+			}
+
 			for (const segment of line.children) {
 				const start = this.#getStart(segment);
 				const end = this.#getEnd(segment);
@@ -448,7 +466,7 @@ export class Textarea {
 				}
 
 				const range = document.createRange();
-				range.setStart(/** @type {Node} */ (segment.firstChild), index - start);
+				range.setStart( /** @type {Node} */ (segment.firstChild), index - start);
 				return range;
 			}
 		}

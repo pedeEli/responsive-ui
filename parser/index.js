@@ -168,8 +168,10 @@ function* current() {
 /** @type {parser.Parser<void, [parser.Node]>} */
 function* push(node) {
 	const state = yield;
-	state.stack.push(node);
 	state.nodes.push(node);
+	if (!node.selfClosing) {
+		state.stack.push(node);
+	}
 }
 
 /** @type {parser.Parser<parser.Node | null>} */
@@ -291,9 +293,7 @@ function* node() {
 		node.parent = parent;
 	}
 	
-	if (!node.selfClosing) {
-		yield* push(node);
-	}
+	yield* push(node);
 	yield* skipWhitespace();
 }
 

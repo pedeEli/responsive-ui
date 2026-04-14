@@ -39,35 +39,10 @@ function init() {
 	Canvas.init(canvas, ctx);
 	
 	const textarea = new Textarea(xmlInput);
+	textarea.onupdate = (nodes) => {
+		Canvas.build(nodes);
+	}
 	textarea.value = defaultXml;
-	// textarea.onupdate = (nodes) => {
-	// 	Canvas.build(nodes);
-	// }
-
-	// textarea.parse(defaultXml);
 	Canvas.run();
-
-	// xmlInput.value = defaultXml;
-
-	// Canvas.init(canvas, ctx);
-	// Canvas.build(defaultXml);
-	// Canvas.run();
-
-	// xmlInput.addEventListener('input', async () => {
-	// 	const output = Canvas.build(xmlInput.value);
-	// 	console.log(output);
-	// 	Canvas.run();
-	// })
-	
-
 }
 init();
-
-// import {parse} from './parser/index.js';
-
-// const result = parse(`
-// 	<div foo bar="baz">
-// 		<p></p>
-	
-// `);
-// console.log(result);
