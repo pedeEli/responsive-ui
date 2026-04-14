@@ -5,6 +5,8 @@
 	:root {
 		--base-clr: oklch(from blue 50% 30% h);
 		--base-clr-dark: oklch(from var(--base-clr) calc(l - 0.1) c h);
+		--base-clr-darkest: oklch(from var(--base-clr-dark) calc(l - 0.07) c h);
+		--error-clr: oklch(from red 55% 50% h);
 		color: oklch(from white calc(l - 0.05) c h);
 	}
 
@@ -56,22 +58,39 @@
 @layer textarea {
 	.textarea {
 		min-height: 15rem;
-		background-color: var(--base-clr-dark);
+		background-color: var(--base-clr-darkest);
 		border-radius: 0.25rem;
 		position: relative;
 		overflow-y: auto;
 		user-select: text;
+		display: grid;
+		grid-template-columns: auto 1fr;
+		font-family: monospace;
+
+		.line-numbers {
+			background-color: var(--base-clr-dark);
+			padding-inline: 0.5rem;
+			padding-block: 0.25rem;
+
+			.line-number {
+				text-align: end;
+			}
+		}
 		
 		.textbox {
 			padding-inline: 0.5rem;
 			padding-block: 0.25rem;
-			font-family: monospace;
 
 			.line {
 				white-space: pre;
 
 				[data-highlight="tag"] {
 					color: orange;
+				}
+				
+				[data-highlight="tag"]::before {
+					/* content: "\00a0\00a0\00a0\00a0\00a0"; */
+					text-decoration: underline wavy var(--error-clr);
 				}
 		
 				[data-highlight="string"] {

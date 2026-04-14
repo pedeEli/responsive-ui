@@ -6,6 +6,8 @@ export class Textarea {
 	/** @type {HTMLElement} */
 	#textbox;
 	/** @type {HTMLElement} */
+	#lineNumbers;
+	/** @type {HTMLElement} */
 	#cursor;
 
 	#focused = false;
@@ -23,6 +25,11 @@ export class Textarea {
 	constructor(root) {
 		this.#root = root;
 		this.#root.classList.add('textarea');
+
+		this.#lineNumbers = document.createElement('div');
+		this.#lineNumbers.classList.add('line-numbers');
+		this.#lineNumbers.dataset.type = 'line-numbers';
+		this.#root.append(this.#lineNumbers);
 
 		this.#textbox = document.createElement('div');
 		this.#textbox.classList.add('textbox');
@@ -183,8 +190,16 @@ export class Textarea {
 			return;
 		}
 
-		const range = selection.getRangeAt(0);
-		const hasSelection = range.startContainer !== range.endContainer || range.startOffset !== range.endOffset;
+		let range = selection.getRangeAt(0);
+		let hasSelection = range.startContainer !== range.endContainer || range.startOffset !== range.endOffset;
+
+		if (!hasSelection && /backspace|delete/i.test(event.key)) {
+			const direction = event.key === 'Backspace' ? 'backward' : 'forward';
+			const granularity = event.ctrlKey ? 'word' : 'character';
+			selection.modify('extend', direction, granularity);
+			range = selection.getRangeAt(0);
+			hasSelection = true;
+		}
 
 		if (hasSelection) {
 			// delete selection
@@ -204,24 +219,15 @@ export class Textarea {
 			}
 		}
 
-		if (hasSelection && /backspace|delete/i.test(event.key)) {
+		if (/backspace|delete/i.test(event.key)) {
 			return;
 		}
 
 		let index = this.#getStart(range.startContainer) + range.startOffset;
+		const char = event.key === 'Enter' ? '\n' : event.key;
+		this.value = this.#value.substring(0, index) + char + this.#value.substring(index);
 
-		if (event.key === 'Backspace') {
-			this.value = this.#value.substring(0, index - 1) + this.#value.substring(index);
-			index--;
-		} else if (event.key === 'Delete') {
-			this.value = this.#value.substring(0, index) + this.#value.substring(index + 1);
-		} else {
-			const char = event.key === 'Enter' ? '\n' : event.key;
-			this.value = this.#value.substring(0, index) + char + this.#value.substring(index);
-			index++;
-		}
-
-		const r = this.#getRangeFromIndex(index);
+		const r = this.#getRangeFromIndex(index + 1);
 		if (r) {
 			if (r.startContainer instanceof Element) {
 				this.#setCursorWithRect(r.startContainer.getBoundingClientRect());
@@ -241,6 +247,9 @@ export class Textarea {
 		while (this.#textbox.firstChild) {
 			this.#textbox.firstChild.remove();
 		}
+		while (this.#lineNumbers.firstChild) {
+			this.#lineNumbers.firstChild.remove();
+		}
 
 		const result = parse(this.#value);
 		for (const error of result.errors) {
@@ -256,6 +265,15 @@ export class Textarea {
 		}
 
 		const lines = this.#value.split('\n');
+
+		for (let i = 0; i < lines.length; i++) {
+			const lineNumber = document.createElement('div');
+			lineNumber.classList.add('line-number');
+			lineNumber.dataset.type = 'line-number';
+			lineNumber.dataset.line = `${i}`;
+			lineNumber.append(`${i + 1}`);
+			this.#lineNumbers.append(lineNumber);
+		}
 
 		/** @type {textarea.Highlight[][]} */
 		const highlights = [];
@@ -416,7 +434,7 @@ export class Textarea {
 	 * @param {'left' | 'right'} [side='left']
 	 */
 	#setCursorWithRect(rect, side = 'left') {
-		const parent = this.#textbox.getBoundingClientRect();
+		const parent = this.#root.getBoundingClientRect();
 		const left = rect[side] - parent.left;
 		const top = rect.top - parent.top;
 		this.#cursor.style.left = `${left}px`;
