@@ -35,6 +35,7 @@ export class Textarea {
 		this.#textbox.classList.add('textbox');
 		this.#textbox.role = 'textbox';
 		this.#textbox.dataset.type = 'textbox';
+		this.#textbox.addEventListener('paste', this.#pasteHandle.bind(this));
 		this.#root.append(this.#textbox);
 
 		this.#cursor = document.createElement('div');
@@ -178,7 +179,12 @@ export class Textarea {
 			return;
 		}
 
-		if (event.key.length !== 1 && !/enter|backspace|delete/i.test(event.key)) {
+		const isRemoveChar = event.key === 'Backspace' || event.key === 'Delete';
+		if (event.key.length !== 1 && !isRemoveChar && event.key !== 'Enter') {
+			return;
+		}
+
+		if (event.ctrlKey && !isRemoveChar) {
 			return;
 		}
 
@@ -190,53 +196,42 @@ export class Textarea {
 			return;
 		}
 
-		let range = selection.getRangeAt(0);
-		let hasSelection = range.startContainer !== range.endContainer || range.startOffset !== range.endOffset;
-
-		if (!hasSelection && /backspace|delete/i.test(event.key)) {
+		if (!this.#hasSelection(selection) && isRemoveChar) {
 			const direction = event.key === 'Backspace' ? 'backward' : 'forward';
 			const granularity = event.ctrlKey ? 'word' : 'character';
 			selection.modify('extend', direction, granularity);
-			range = selection.getRangeAt(0);
-			hasSelection = true;
 		}
 
-		if (hasSelection) {
-			// delete selection
-			const start = this.#getStart(range.startContainer) + range.startOffset;
-			const end = this.#getStart(range.endContainer) + range.endOffset;
-			this.value = this.#value.substring(0, start) + this.#value.substring(end);
+		this.#deleteSelection(selection);
 
-			let r = this.#getRangeFromIndex(start);
-			if (r) {
-				if (r.startContainer instanceof Element) {
-					this.#setCursorWithRect(r.startContainer.getBoundingClientRect());
-				} else {
-					this.#setCursorWithRect(r.getBoundingClientRect());
-				}
-				selection.removeAllRanges();
-				selection.addRange(r);
-			}
-		}
-
-		if (/backspace|delete/i.test(event.key)) {
+		if (isRemoveChar) {
 			return;
 		}
 
+		const range = selection.getRangeAt(0);
 		let index = this.#getStart(range.startContainer) + range.startOffset;
 		const char = event.key === 'Enter' ? '\n' : event.key;
 		this.value = this.#value.substring(0, index) + char + this.#value.substring(index);
 
-		const r = this.#getRangeFromIndex(index + 1);
-		if (r) {
-			if (r.startContainer instanceof Element) {
-				this.#setCursorWithRect(r.startContainer.getBoundingClientRect());
-			} else {
-				this.#setCursorWithRect(r.getBoundingClientRect());
-			}
-			selection.removeAllRanges();
-			selection.addRange(r);
+		this.#setCursorWithIndex(selection, index + 1);
+	}
+
+	/** @param {ClipboardEvent} event */
+	#pasteHandle(event) {
+		event.preventDefault();
+		const selection = window.getSelection();
+		const data = event.clipboardData?.getData('text');
+		if (!data || !selection) {
+			return;
 		}
+
+		this.#deleteSelection(selection);
+
+		const range = selection.getRangeAt(0);
+		let index = this.#getStart(range.startContainer) + range.startOffset;
+		this.value = this.#value.substring(0, index) + data + this.#value.substring(index);
+
+		this.#setCursorWithIndex(selection, index + data.length);
 	}
 
 
@@ -461,6 +456,23 @@ export class Textarea {
 		const rect = range.getBoundingClientRect();
 		this.#setCursorWithRect(rect);
 	}
+	/** 
+	 * @param {number} index
+	 * @param {Selection} selection
+	 */
+	#setCursorWithIndex(selection, index) {
+		const range = this.#getRangeFromIndex(index);
+		if (!range) {
+			return;
+		}
+		if (range.startContainer instanceof Element) {
+			this.#setCursorWithRect(range.startContainer.getBoundingClientRect());
+		} else {
+			this.#setCursorWithRect(range.getBoundingClientRect());
+		}
+		selection.removeAllRanges();
+		selection.addRange(range);
+	}
 	/** @param {number} index */
 	#getRangeFromIndex(index) {
 		for (const line of this.#textbox.children) {
@@ -541,5 +553,25 @@ export class Textarea {
 			return parseInt(element.dataset.length);
 		}
 		return 0;
+	}
+
+	// selection stuff ===================================
+	/** @param {Selection} selection */
+	#hasSelection(selection) {
+		const range = selection.getRangeAt(0);
+		return range.startContainer !== range.endContainer || range.startOffset !== range.endOffset;
+	}
+	/** @param {Selection} selection */
+	#deleteSelection(selection) {
+		if (!this.#hasSelection(selection)) {
+			return;
+		}
+
+		const range = selection.getRangeAt(0);
+		const start = this.#getStart(range.startContainer) + range.startOffset;
+		const end = this.#getStart(range.endContainer) + range.endOffset;
+		this.value = this.#value.substring(0, start) + this.#value.substring(end);
+
+		this.#setCursorWithIndex(selection, start);
 	}
 }
