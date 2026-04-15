@@ -34,7 +34,7 @@ function* userError(message, start, end) {
 		error: {
 			type: 'user',
 			message,
-			start,
+			pos: start,
 			end
 		}
 	};
@@ -362,7 +362,7 @@ export function parse(template) {
 		errors.push({
 			type: 'user',
 			message: 'tag needs to be closed',
-			start: node.name.start,
+			pos: node.name.start,
 			end: node.name.end
 		});
 	}

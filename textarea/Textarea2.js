@@ -9,6 +9,8 @@ export class Textarea {
 	#lineNumbers;
 	/** @type {HTMLElement} */
 	#cursor;
+	/** @type {HTMLElement} */
+	#errors;
 
 	#focused = false;
 	#pointerdown = false;
@@ -44,6 +46,11 @@ export class Textarea {
 		this.#cursor.ariaHidden = 'true';
 		this.#cursor.hidden = true;
 		this.#root.append(this.#cursor);
+
+		this.#errors = document.createElement('div');
+		this.#errors.classList.add('error-lines');
+		this.#errors.dataset.type = 'error-lines';
+		this.#root.append(this.#errors);
 
 		window.addEventListener('pointerdown', this.#pointerdownHandle.bind(this));
 		window.addEventListener('pointerup', this.#pointerupHandle.bind(this));
@@ -196,7 +203,7 @@ export class Textarea {
 			return;
 		}
 
-		if (!this.#hasSelection(selection) && isRemoveChar) {
+		if (selection.type === 'Caret' && isRemoveChar) {
 			const direction = event.key === 'Backspace' ? 'backward' : 'forward';
 			const granularity = event.ctrlKey ? 'word' : 'character';
 			selection.modify('extend', direction, granularity);
@@ -250,6 +257,7 @@ export class Textarea {
 		for (const error of result.errors) {
 			console.error(error);
 		}
+		this.#updateErrors(result.errors);
 		for (const warning of result.warnings) {
 			console.error(warning);
 		}
@@ -557,13 +565,8 @@ export class Textarea {
 
 	// selection stuff ===================================
 	/** @param {Selection} selection */
-	#hasSelection(selection) {
-		const range = selection.getRangeAt(0);
-		return range.startContainer !== range.endContainer || range.startOffset !== range.endOffset;
-	}
-	/** @param {Selection} selection */
 	#deleteSelection(selection) {
-		if (!this.#hasSelection(selection)) {
+		if (selection.type === 'Caret') {
 			return;
 		}
 
@@ -573,5 +576,61 @@ export class Textarea {
 		this.value = this.#value.substring(0, start) + this.#value.substring(end);
 
 		this.#setCursorWithIndex(selection, start);
+	}
+
+	// errors
+	/** @param {parser.Error[]} errors */
+	#updateErrors(errors) {
+		while (this.#errors.firstChild) {
+			this.#errors.firstChild.remove();
+		}
+
+		/** @type {parser.Error[][]} */
+		const lines = [];
+
+		for (const error of errors) {
+			let line = lines.at(error.pos.line);
+			if (!line) {
+				line = [];
+				lines[error.pos.line] = line;
+			}
+			line.push(error);
+		}
+
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines.at(i);
+
+			const errorLine = document.createElement('div');
+			errorLine.classList.add('error-line');
+			errorLine.dataset.type = 'error-line';
+			this.#errors.append(errorLine);
+			
+			if (!line) {
+				errorLine.append(document.createElement('br'));
+				continue;
+			}
+
+			line.sort((a, b) => a.pos.column - b.pos.column);
+
+			let column = 0;
+			for (const error of line) {
+				if (error.pos.column !== 0) {
+					const length = error.pos.column - column;
+					errorLine.append('\u00a0'.repeat(length));
+				}
+
+				let length = 1;
+				if (error.type === 'user' && error.end) {
+					length = error.end.column - error.pos.column;
+				}
+
+				const node = document.createElement('span');
+				node.dataset.type = 'error';
+				node.append('\u00a0'.repeat(length));
+				errorLine.append(node);
+
+				column = error.pos.column + length;
+			}
+		}
 	}
 }

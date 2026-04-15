@@ -81,24 +81,34 @@
 			padding-inline: 0.5rem;
 			padding-block: 0.25rem;
 
+			grid-row-start: 1;
+			grid-column-start: 2;
+
 			.line {
 				white-space: pre;
 
 				[data-highlight="tag"] {
 					color: orange;
 				}
-				
-				[data-highlight="tag"]::before {
-					/* content: "\00a0\00a0\00a0\00a0\00a0"; */
-					text-decoration: underline wavy var(--error-clr);
-				}
-		
+			
 				[data-highlight="string"] {
 					color: lightgreen;
 				}
 			}
 		}
 
+		.error-lines {
+			pointer-events: none;
+			padding-inline: 0.5rem;
+			padding-block: 0.25rem;
+
+			grid-row-start: 1;
+			grid-column-start: 2;
+
+			[data-type="error"] {
+				text-decoration: underline wavy var(--error-clr);
+			}
+		}
 
 		.cursor {
 			position: absolute;

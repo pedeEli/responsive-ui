@@ -72,7 +72,7 @@ declare namespace parser {
 	type UserError = {
 		type: 'user';
 		message: string;
-		start: SourcePosition;
+		pos: SourcePosition;
 		end?: SourcePosition;
 	}
 }
