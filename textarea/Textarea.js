@@ -5,57 +5,278 @@ export class Textarea {
 	#root;
 	/** @type {HTMLElement} */
 	#textbox;
-	/** @type {Cursor} */
+	/** @type {HTMLElement} */
+	#lineNumbers;
+	/** @type {HTMLElement} */
 	#cursor;
+	/** @type {HTMLElement} */
+	#errors;
 
 	#focused = false;
-	#value = '';
-	/** @type {textarea.LineInfo[]}} */
-	#lines = [];
-
 	#pointerdown = false;
+
+	/** @type {null | number} */
+	#storedColumn = null;
+
+	#value = '';
 
 	/** @type {null | ((nodes: parser.Node[]) => void)} */
 	onupdate = null;
-	
+
 	/** @param {HTMLElement} root */
 	constructor(root) {
 		this.#root = root;
 		this.#root.classList.add('textarea');
-		this.#textbox = Textarea.#createTextarea();
+
+		this.#lineNumbers = document.createElement('div');
+		this.#lineNumbers.classList.add('line-numbers');
+		this.#lineNumbers.dataset.type = 'line-numbers';
+		this.#root.append(this.#lineNumbers);
+
+		this.#textbox = document.createElement('div');
+		this.#textbox.classList.add('textbox');
+		this.#textbox.role = 'textbox';
+		this.#textbox.dataset.type = 'textbox';
+		this.#textbox.addEventListener('paste', this.#pasteHandle.bind(this));
 		this.#root.append(this.#textbox);
-		this.#cursor = new Cursor(Textarea.#createCursor(), this);
-		this.#root.append(this.#cursor.element);
+
+		this.#cursor = document.createElement('div');
+		this.#cursor.classList.add('cursor');
+		this.#cursor.dataset.type = 'cursor';
+		this.#cursor.ariaHidden = 'true';
+		this.#cursor.hidden = true;
+		this.#root.append(this.#cursor);
+
+		this.#errors = document.createElement('div');
+		this.#errors.classList.add('error-lines');
+		this.#errors.dataset.type = 'error-lines';
+		this.#root.append(this.#errors);
 
 		window.addEventListener('pointerdown', this.#pointerdownHandle.bind(this));
 		window.addEventListener('pointerup', this.#pointerupHandle.bind(this));
 		window.addEventListener('pointermove', this.#pointermoveHandle.bind(this));
-		window.addEventListener('keydown', this.#keydownHandle.bind(this));
+		window.addEventListener('keydown', this.#keydownHandle_CursorPosition.bind(this));
+		window.addEventListener('keydown', this.#keydownHandle_ValueModification.bind(this));
 	}
 
-	/** @param {string} text */
-	parse(text) {
-		this.#value = text;
-
-		for (const {element} of this.#lines) {
-			element.remove();
+	/** @param {PointerEvent} event */
+	#pointerdownHandle(event) {
+		if (!(event.target instanceof Node)) {
+			return;
 		}
-		this.#lines = [];
 
-		const result = parse(text);
+		if (!this.#root.contains(event.target)) {
+			this.#cursor.hidden = true;
+			this.#focused = false;
+			return;
+		}
 
+		this.#pointerdown = true;
+		this.#focused = true;
+		this.#showCursor();
+
+		this.#setCursorWithPoint(event.x, event.y);
+	}
+
+	#pointerupHandle() {
+		this.#pointerdown = false;
+	}
+
+	/** @param {PointerEvent} event */
+	#pointermoveHandle(event) {
+		if (this.#pointerdown) {
+			this.#setCursorWithPoint(event.x, event.y);
+		}
+	}
+
+	/** @param {KeyboardEvent} event */
+	#keydownHandle_CursorPosition(event) {
+		if (!this.#focused) {
+			return;
+		}
+
+		if (!/home|end|arrow/i.test(event.key)) {
+			return;
+		}
+
+		event.stopImmediatePropagation();
+		event.preventDefault();
+		const selection = window.getSelection();
+		if (!selection) {
+			return;
+		}
+
+		const alter = event.shiftKey ? 'extend' : 'move';
+		const granularity = event.ctrlKey ? 'word' : 'character';
+
+		switch (event.key) {
+			case 'ArrowLeft':
+				this.#storedColumn = null;
+				selection.modify(alter, 'backward', granularity);
+				break;
+			case 'ArrowRight':
+				this.#storedColumn = null;
+				selection.modify(alter, 'forward', granularity);
+				break;
+			case 'Home':
+				this.#storedColumn = null;
+				selection.modify(alter, 'backward', 'lineboundary');
+				break;
+			case 'End':
+				this.#storedColumn = null;
+				selection.modify(alter, 'forward', 'lineboundary');
+				break;
+			case 'ArrowUp':
+				{
+					const range = selection.getRangeAt(0).cloneRange();
+					range.collapse(selection.direction === 'backward');
+					
+					this.#storedColumn ??= this.#getColumn(range.startContainer) + range.startOffset;
+					selection.modify(alter, 'backward', 'lineboundary');
+					
+					const line = this.#getLine(range.startContainer).previousElementSibling;
+					if (!(line instanceof HTMLElement)) {
+						break;
+					}
+	
+					selection.modify(alter, 'backward', 'character');
+					
+					const length = this.#getLength(line) - 1;
+					for (let i = length; i > this.#storedColumn; i--) {
+						selection.modify(alter, 'backward', 'character');
+					}
+				}
+				break;
+			case 'ArrowDown':
+				{
+					const range = selection.getRangeAt(0).cloneRange();
+					range.collapse(selection.direction === 'backward');
+					
+					this.#storedColumn ??= this.#getColumn(range.startContainer) + range.startOffset;
+					selection.modify(alter, 'forward', 'lineboundary');
+					
+					const line = this.#getLine(range.startContainer).nextElementSibling;
+					if (!(line instanceof HTMLElement)) {
+						break;
+					}
+	
+					selection.modify(alter, 'forward', 'character');
+					
+					const length = this.#getLength(line) - 1;
+					for (let i = 0; i < Math.min(length, this.#storedColumn); i++) {
+						selection.modify(alter, 'forward', 'character');
+					}
+				}
+				break;
+		}
+
+		if (selection.anchorNode instanceof Element) {
+			this.#setCursorWithRect(selection.anchorNode.getBoundingClientRect());
+			return;
+		}
+
+		const range = selection.getRangeAt(0).cloneRange();
+		range.collapse(selection.direction === 'backward');
+		this.#setCursorWithRect(range.getBoundingClientRect());
+	}
+	
+	/** @param {KeyboardEvent} event */
+	#keydownHandle_ValueModification(event) {
+		if (!this.#focused) {
+			return;
+		}
+
+		const isRemoveChar = event.key === 'Backspace' || event.key === 'Delete';
+		if (event.key.length !== 1 && !isRemoveChar && event.key !== 'Enter') {
+			return;
+		}
+
+		if (event.ctrlKey && !isRemoveChar) {
+			return;
+		}
+
+		event.stopImmediatePropagation();
+		event.preventDefault();
+
+		const selection = window.getSelection();
+		if (!selection) {
+			return;
+		}
+
+		if (selection.type === 'Caret' && isRemoveChar) {
+			const direction = event.key === 'Backspace' ? 'backward' : 'forward';
+			const granularity = event.ctrlKey ? 'word' : 'character';
+			selection.modify('extend', direction, granularity);
+		}
+
+		this.#deleteSelection(selection);
+
+		if (isRemoveChar) {
+			return;
+		}
+
+		const range = selection.getRangeAt(0);
+		let index = this.#getStart(range.startContainer) + range.startOffset;
+		const char = event.key === 'Enter' ? '\n' : event.key;
+		this.value = this.#value.substring(0, index) + char + this.#value.substring(index);
+
+		this.#setCursorWithIndex(selection, index + 1);
+	}
+
+	/** @param {ClipboardEvent} event */
+	#pasteHandle(event) {
+		event.preventDefault();
+		const selection = window.getSelection();
+		const data = event.clipboardData?.getData('text');
+		if (!data || !selection) {
+			return;
+		}
+
+		this.#deleteSelection(selection);
+
+		const range = selection.getRangeAt(0);
+		let index = this.#getStart(range.startContainer) + range.startOffset;
+		this.value = this.#value.substring(0, index) + data + this.#value.substring(index);
+
+		this.#setCursorWithIndex(selection, index + data.length);
+	}
+
+
+	/** @param {string} v */
+	set value(v) {
+		this.#value = v;
+
+		while (this.#textbox.firstChild) {
+			this.#textbox.firstChild.remove();
+		}
+		while (this.#lineNumbers.firstChild) {
+			this.#lineNumbers.firstChild.remove();
+		}
+
+		const result = parse(this.#value);
 		for (const error of result.errors) {
 			console.error(error);
 		}
+		this.#updateErrors(result.errors);
 		for (const warning of result.warnings) {
 			console.error(warning);
 		}
 
+		this.onupdate?.(result.nodes);
 		if (result.nodes.length === 0) {
-			return result;
+			return;
 		}
-		
-		const lines = text.split('\n');
+
+		const lines = this.#value.split('\n');
+
+		for (let i = 0; i < lines.length; i++) {
+			const lineNumber = document.createElement('div');
+			lineNumber.classList.add('line-number');
+			lineNumber.dataset.type = 'line-number';
+			lineNumber.dataset.line = `${i}`;
+			lineNumber.append(`${i + 1}`);
+			this.#lineNumbers.append(lineNumber);
+		}
 
 		/** @type {textarea.Highlight[][]} */
 		const highlights = [];
@@ -99,7 +320,7 @@ export class Textarea {
 				})
 			}
 		}
-		
+
 		const nodes = [...result.nodes];
 		while (nodes.length > 0) {
 			const node = /** @type {parser.Node} */ (nodes.pop());
@@ -108,416 +329,308 @@ export class Textarea {
 			if (node.closingTag) {
 				setHighlight(node.closingTag, 'tag');
 			}
-			
+
 			for (const attr of node.attributes) {
 				if (attr.value) {
 					setHighlight(attr.value, 'string');
 				}
 			}
 
-			if (node.children) {
-				nodes.push(...node.children);
-			}
+			nodes.push(...node.children);
 		}
 
 		let currentIndex = 0;
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
-			const element = Textarea.#createLine();
-			/** @type {textarea.LineInfo['children']} */
-			const children = [];
-			const elementStart = currentIndex;
-			currentIndex += line.length + 1;
-			const elementEnd = currentIndex;
+			const lineStartIndex = currentIndex;
+			const lineLength = line.length + 1;
+			const lineEndIndex = currentIndex = currentIndex + lineLength;
 
-			this.#lines.push({children, element, start: elementStart, end: elementEnd, length: line.length});
-			this.#textbox.append(element);
-			
+			const lineElement = document.createElement('div');
+			lineElement.classList.add('line');
+			lineElement.dataset.type = 'line';
+			lineElement.dataset.length = `${lineLength}`;
+			lineElement.dataset.start = `${lineStartIndex}`;
+			lineElement.dataset.end = `${lineEndIndex}`;
+			this.#textbox.append(lineElement);
+
 			const highlight = highlights.at(i);
 			if (!highlight) {
-				if (line !== '') {
-					const text = document.createTextNode(line);
-					children.push({node: text, start: elementStart, end: elementEnd});
-					element.append(text);
-					continue;
+				const lineSegment = document.createElement('span');
+				lineSegment.dataset.type = 'segment';
+				lineSegment.dataset.start = `${lineStartIndex}`;
+				lineSegment.dataset.end = `${lineEndIndex}`;
+				lineSegment.dataset.length = `${lineLength}`;
+				lineSegment.dataset.column = '0';
+
+				if (line === '') {
+					lineSegment.append(document.createElement('br'));
+				} else {
+					lineSegment.append(line)
 				}
-				element.append(document.createElement('br'));
+				lineElement.append(lineSegment);
 				continue;
 			}
-			
+
 			highlight.sort((a, b) => a.region.start.index - b.region.start.index);
-			let index = 0;
+
+			let column = 0;
+			let index = lineStartIndex;
 			for (const {type, region} of highlight) {
 				if (region.start.column !== 0) {
-					const text = line.substring(index, region.start.column);
-					const node = document.createTextNode(text);
-					children.push({node, start: elementStart + index, end: region.start.index});
-					element.append(node);
+					const start = index;
+					const end = region.start.index;
+
+					const lineSegment = document.createElement('span');
+					lineSegment.dataset.type = 'segment';
+					lineSegment.dataset.start = `${start}`;
+					lineSegment.dataset.end = `${end}`;
+					lineSegment.dataset.length = `${end - start}`;
+					lineSegment.dataset.column = `${column}`;
+					lineSegment.append(line.substring(column, region.start.column));
+					lineElement.append(lineSegment);
 				}
 
-				const span = document.createElement('span');
-				span.dataset.highlight = type;
-				span.dataset.type = 'segment';
-				const text = line.substring(region.start.column, region.end.column);
-				const node = document.createTextNode(text);
-				span.append(node);
+				const start = region.start.index;
 				let end = region.end.index;
 				if (region.end.column === line.length) {
 					end++;
 				}
-				children.push({node, start: region.start.index, end});
-				element.append(span);
-				index = region.end.column;
+
+				const lineSegment = document.createElement('span');
+				lineSegment.dataset.type = 'segment';
+				lineSegment.dataset.highlight = type;
+				lineSegment.dataset.start = `${start}`;
+				lineSegment.dataset.end = `${end}`;
+				lineSegment.dataset.length = `${end - start}`;
+				lineSegment.dataset.column = `${region.start.column}`;
+				lineSegment.append(line.substring(region.start.column, region.end.column));
+				lineElement.append(lineSegment);
+
+				column = region.end.column;
+				index = region.end.index;
 			}
-			if (index < line.length) {
-				const node = document.createTextNode(line.substring(index));
-				children.push({node, start: elementStart + index, end: elementEnd});
-				element.append(node);
+			if (column < line.length) {
+				const text = line.substring(column);
+
+				const lineSegment = document.createElement('span');
+				lineSegment.dataset.type = 'segment';
+				lineSegment.dataset.start = `${index}`;
+				lineSegment.dataset.end = `${lineEndIndex}`;
+				lineSegment.dataset.length = `${lineEndIndex - index}`;
+				lineSegment.dataset.column = `${column}`;
+				lineSegment.append(text);
+				lineElement.append(lineSegment);
 			}
 		}
-
-		this.onupdate?.(result.nodes);
 	}
 
-	/** @returns {HTMLElement} */
-	static #createLine() {
-		const element = document.createElement('div');
-		element.classList.add('line');
-		element.dataset.type = 'line';
-		return element;
+
+	// cursor ======================================================
+	#showCursor() {
+		this.#cursor.hidden = true;
+		this.#cursor.getBoundingClientRect();
+		this.#cursor.hidden = false;
 	}
-
-	#windowPointerupHandle() {
-		this.#pointerdown = false;
-	}
-
-	/** @param {PointerEvent} event */
-	#windowPointermoveHandle(event) {
-		if (!this.#pointerdown) {
-			return;
-		}
-
-		const pos = document.caretPositionFromPoint(event.x, event.y);
-		if (!pos || !this.#textbox.contains(pos.offsetNode)) {
-			return;
-		}
-
-		this.#cursor.index = this.#getIndexByNodeAndOffset(pos.offsetNode, pos.offset);
-	}
-
-	/** @param {PointerEvent} event */
-	#windowPointerdownHandle(event) {
-		if (!(event.target instanceof Node)) {
-			return;
-		}
-
-		if (this.#root.contains(event.target)) {
-			this.#pointerdownHandle(event.x, event.y);
-		} else {
-			this.#blurHandle();
-		}
+	/**
+	 * @param {DOMRect} rect
+	 * @param {'left' | 'right'} [side='left']
+	 */
+	#setCursorWithRect(rect, side = 'left') {
+		const parent = this.#root.getBoundingClientRect();
+		const left = rect[side] - parent.left;
+		const top = rect.top - parent.top;
+		this.#cursor.style.left = `${left}px`;
+		this.#cursor.style.top = `${top}px`;
+		this.#showCursor();
 	}
 	/**
 	 * @param {number} x
 	 * @param {number} y
 	 */
-	#pointerdownHandle(x, y) {
-		this.#pointerdown = true;
-		if (!this.#focused) {
-			this.#focused = true;
-		}
-
-		document.body.style.userSelect = 'none';
-		this.#cursor.show();
-		
+	#setCursorWithPoint(x, y) {
 		const pos = document.caretPositionFromPoint(x, y);
-		if (!pos) {
+		if (!pos || !this.#textbox.contains(pos.offsetNode)) {
 			return;
 		}
 
-		const index = this.#getIndexByNodeAndOffset(pos.offsetNode, pos.offset);
-		if (index !== -1) {
-			this.#cursor.index = index;
-		}
-	}
-
-	#blurHandle() {
-		if (!this.#focused) {
-			return;
-		}
-
-		document.body.style.userSelect = 'text';
-
-		this.#focused = false;
-		this.#cursor.hide();
-	}
-
-	/**
-	 * @param {Node} node
-	 * @param {number} offset
-	 */
-	#getIndexByNodeAndOffset(node, offset) {
-		let index = -1;
-		for (const line of this.#lines) {
-			if (line.element.contains(node)) {
-				index = line.start;
-				for (const child of line.children) {
-					if (child.node.contains(node)) {
-						index += offset;
-						break;
-					}
-					index = child.end;
-				}
-				break;
-			}
-		}
-		return index;
-	}
-
-	/** @param {KeyboardEvent} event */
-	#windowKeydownHandle(event) {
-		if (!this.#focused) {
-			return;
-		}
-
-		if (event.key.length === 1 || event.key === 'Enter') {
-			let index = this.#cursor.index;
-			const selection = this.#getSelection();
-			if (selection) {
-				index = this.#removeRange(index, selection.start, selection.end);
-			}
-
-			const front = this.#value.substring(0, index);
-			const key = event.key === 'Enter' ? '\n' : event.key;
-			const back = this.#value.substring(index);
-			this.parse(front + key + back);
-			this.#cursor.index = index + 1;
-		} else if (event.key === 'Backspace' || event.key === 'Delete') {
-			let index = this.#cursor.index;
-			const selection = this.#getSelection();
-			if (selection) {
-				index = this.#removeRange(index, selection.start, selection.end);
-				this.parse(this.#value);
-			} else {
-				if (event.key === 'Delete') {
-					index++;
-				}
-				const front = this.#value.substring(0, index - 1);
-				const back = this.#value.substring(index);
-				this.#value = front + back;
-				index--;
-			}
-			this.parse(this.#value);
-			this.#cursor.index = index;
-		} else if (event.key === 'ArrowLeft') {
-			this.#cursor.index--;
-			if (!event.shiftKey) {
-				this.#setRangeStart();
-			}
-		} else if (event.key === 'ArrowRight') {
-			this.#cursor.index++;
-			if (!event.shiftKey) {
-				this.#setRangeStart();
-			}
-		} else if (event.key === 'ArrowUp') {
-			this.#cursor.up();
-			if (!event.shiftKey) {
-				this.#setRangeStart();
-			}
-		} else if (event.key === 'ArrowDown') {
-			this.#cursor.down();
-			if (!event.shiftKey) {
-				this.#setRangeStart();
-			}
-		}
-	}
-
-	#getSelection() {
-		const ranges = document.getSelection()?.getComposedRanges();
-		if (!ranges || ranges.length === 0) {
-			return null;
-		}
-		const start = this.#getIndexByNodeAndOffset(ranges[0].startContainer, ranges[0].startOffset);
-		const end = this.#getIndexByNodeAndOffset(ranges[0].endContainer, ranges[0].endOffset);
-		if (start === end) {
-			return null;
-		}
-		return {start, end};
-	}
-
-	/**
-	 * @param {number} index
-	 * @param {number} start
-	 * @param {number} end
-	 * @returns {number}
-	 */
-	#removeRange(index, start, end) {
-		this.#value = this.#value.substring(0, start) + this.#value.substring(end);
-		if (index > end) {
-			index -= end - start;
-		} else if (index > start) {
-			index = start;
-		}
-		return index;
-	}
-
-	#setRangeStart() {
-		const selection = document.getSelection();
-		const node = this.#cursor.node;
-		if (!selection || !node) {
+		if (pos.offsetNode instanceof Element) {
+			this.#setCursorWithRect(pos.offsetNode.getBoundingClientRect());
 			return;
 		}
 
 		const range = document.createRange();
-		range.setStart(node, this.#cursor.offset);
+		range.setStart(pos.offsetNode, pos.offset);
+		const rect = range.getBoundingClientRect();
+		this.#setCursorWithRect(rect);
+	}
+	/** 
+	 * @param {number} index
+	 * @param {Selection} selection
+	 */
+	#setCursorWithIndex(selection, index) {
+		const range = this.#getRangeFromIndex(index);
+		if (!range) {
+			return;
+		}
+		if (range.startContainer instanceof Element) {
+			this.#setCursorWithRect(range.startContainer.getBoundingClientRect());
+		} else {
+			this.#setCursorWithRect(range.getBoundingClientRect());
+		}
 		selection.removeAllRanges();
 		selection.addRange(range);
 	}
-
-	static #createCursor() {
-		const element = document.createElement('div');
-		element.classList.add('cursor');
-		element.ariaHidden = 'true';
-		element.hidden = true;
-		return element;
-	}
-
-	static #createTextarea() {
-		const area = document.createElement('div');
-		area.role = 'textbox';
-		area.classList.add('textbox');
-		area.dataset.type = 'textbox';
-		return area;
-	}
-
-	get textbox() {
-		return this.#textbox;
-	}
-	/** @returns {ReadonlyArray<textarea.LineInfo>} */
-	get lines() {
-		return this.#lines;
-	}
-}
-
-class Cursor {
-	#index = 0;
-	#line = 0;
-	#column = 0;
-	
-	/** @type {null | Node} */
-	#node = null;
-	#offset = 0;
-
-	/** @type {HTMLElement} */
-	element;
-	/** @type {Textarea} */
-	textarea;
-
-	/**
-	 * @param {HTMLElement} element
-	 * @param {Textarea} textarea
-	 */
-	constructor(element, textarea) {
-		this.element = element;
-		this.textarea = textarea;
-	}
-
-	show() {
-		this.element.hidden = true;
-		this.element.getBoundingClientRect();
-		this.element.hidden = false;
-	}
-
-	hide() {
-		this.element.hidden = true;
-	}
-
-	get index() {
-		return this.#index;
-	}
-	/** @param {number} value */
-	set index(value) {
-		this.#index = value;
-		const lines = this.textarea.lines;
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (this.#index >= line.start && this.#index < line.end) {
-				this.#column = this.#index - line.start;
-				this.#line = i;
-				this.#updatePosition(line);
-				break;
-			}
-		}
-	}
-
-	up() {
-		if (this.#line === 0) {
-			return;
-		}
-		this.#line--;
-		this.#updatePositionByLine();
-	}
-	down() {
-		if (this.#line === this.textarea.lines.length - 1) {
-			return;
-		}
-		this.#line++;
-		this.#updatePositionByLine();
-	}
-	#updatePositionByLine() {
-		const line = this.textarea.lines[this.#line];
-		const column = Math.min(line.length, this.#column);
-		this.#index = line.start + column;
-		this.#updatePosition(line);	
-	}
-
-	/** @param {textarea.LineInfo} line */
-	#updatePosition(line) {
-		const parent = this.textarea.textbox.getBoundingClientRect();
-		let left = 0;
-		let top = 0;
-		let positionSet = false;
-
-		for (const child of line.children) {
-			if (this.#index < child.start || this.#index >= child.end) {
+	/** @param {number} index */
+	#getRangeFromIndex(index) {
+		for (const line of this.#textbox.children) {
+			const start = this.#getStart(line);
+			const end = this.#getEnd(line);
+			if (index < start || index >= end) {
 				continue;
 			}
 
-			positionSet = true;
-			const offset = this.#index - child.start;
-			const range = document.createRange();
-			range.setStart(child.node, 0);
-			range.setEnd(child.node, offset);
-			const rect = range.getBoundingClientRect();
-			left = rect.right - parent.left;
-			top = rect.top - parent.top;
-			
-			this.#node = child.node;
-			this.#offset = offset;
-			
-			break;
+			if (start + 1 === end) {
+				const range = document.createRange();
+				range.setStart(line, 0);
+				return range;
+			}
+
+			for (const segment of line.children) {
+				const start = this.#getStart(segment);
+				const end = this.#getEnd(segment);
+				if (index < start || index >= end) {
+					continue;
+				}
+
+				const range = document.createRange();
+				range.setStart( /** @type {Node} */ (segment.firstChild), index - start);
+				return range;
+			}
+		}
+		return null;
+	}
+
+	// dataset helpers =============================================
+	/** @param {Node} node */
+	#getColumn(node) {
+		if (node instanceof Text) {
+			const segment = node.parentElement;
+			if (segment && segment.dataset.column) {
+				return parseInt(segment.dataset.column);
+			}
+		}
+		return 0;
+	}
+	/** @param {Node} node */
+	#getStart(node) {
+		if (node instanceof Text) {
+			const segment = node.parentElement;
+			if (segment && segment.dataset.start) {
+				return parseInt(segment.dataset.start);
+			}
+		}
+		if (node instanceof HTMLElement && node.dataset.start) {
+			return parseInt(node.dataset.start);
+		}
+		return 0;
+	}
+	/** @param {Node} node */
+	#getEnd(node) {
+		if (node instanceof Text) {
+			const segment = node.parentElement;
+			if (segment && segment.dataset.end) {
+				return parseInt(segment.dataset.end);
+			}
+		}
+		if (node instanceof HTMLElement && node.dataset.end) {
+			return parseInt(node.dataset.end);
+		}
+		return 0;
+	}
+	/** @param {Node} node */
+	#getLine(node) {
+		if (node instanceof Text) {
+			return /** @type {HTMLElement} */ (node.parentElement?.parentElement);
+		}
+		return /** @type {HTMLElement} */ (node.parentElement);
+	}
+	/** @param {HTMLElement} element */
+	#getLength(element) {
+		if (element.dataset.length) {
+			return parseInt(element.dataset.length);
+		}
+		return 0;
+	}
+
+	// selection stuff ===================================
+	/** @param {Selection} selection */
+	#deleteSelection(selection) {
+		if (selection.type === 'Caret') {
+			return;
 		}
 
-		if (!positionSet) {
-			this.#offset = 0;
-			this.#node = line.element;
+		const range = selection.getRangeAt(0);
+		const start = this.#getStart(range.startContainer) + range.startOffset;
+		const end = this.#getStart(range.endContainer) + range.endOffset;
+		this.value = this.#value.substring(0, start) + this.#value.substring(end);
 
-			const rect = line.element.getBoundingClientRect();
-			top = rect.top - parent.top;
-			left = rect.left - parent.left;
+		this.#setCursorWithIndex(selection, start);
+	}
+
+	// errors
+	/** @param {parser.Error[]} errors */
+	#updateErrors(errors) {
+		while (this.#errors.firstChild) {
+			this.#errors.firstChild.remove();
 		}
-		
-		this.element.style.left = `${left}px`;
-		this.element.style.top = `${top}px`;
-		this.show();
-	}
 
+		/** @type {parser.Error[][]} */
+		const lines = [];
 
-	get node() {
-		return this.#node;
+		for (const error of errors) {
+			let line = lines.at(error.pos.line);
+			if (!line) {
+				line = [];
+				lines[error.pos.line] = line;
+			}
+			line.push(error);
+		}
+
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines.at(i);
+
+			const errorLine = document.createElement('div');
+			errorLine.classList.add('error-line');
+			errorLine.dataset.type = 'error-line';
+			this.#errors.append(errorLine);
+			
+			if (!line) {
+				errorLine.append(document.createElement('br'));
+				continue;
+			}
+
+			line.sort((a, b) => a.pos.column - b.pos.column);
+
+			let column = 0;
+			for (const error of line) {
+				if (error.pos.column !== 0) {
+					const length = error.pos.column - column;
+					errorLine.append('\u00a0'.repeat(length));
+				}
+
+				let length = 1;
+				if (error.type === 'user' && error.end) {
+					length = error.end.column - error.pos.column;
+				}
+
+				const node = document.createElement('span');
+				node.dataset.type = 'error';
+				node.append('\u00a0'.repeat(length));
+				errorLine.append(node);
+
+				column = error.pos.column + length;
+			}
+		}
 	}
-	get offset() {
-		return this.#offset;
-	}
-	
 }
