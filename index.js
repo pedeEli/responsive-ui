@@ -1,7 +1,8 @@
 import './layout/index.js';
 import './render/index.js';
 import {Canvas} from './core/Canvas.js';
-import {Textarea} from './textarea/Textarea.js';
+import {Textarea} from './textarea/Textarea2.js';
+import {parse} from './parser/index.js';
 
 
 const defaultXml = `<div
@@ -39,8 +40,37 @@ function init() {
 	Canvas.init(canvas, ctx);
 	
 	const textarea = new Textarea(xmlInput);
-	textarea.onupdate = (nodes) => {
-		Canvas.build(nodes);
+	textarea.onchange = (value) => {
+		const result = parse(value);
+		
+		let nodes = [...result.nodes];
+		while (nodes.length !== 0) {
+			const node = /** @type {parser.Node} */ (nodes.pop());
+
+			textarea.addModification(node.name.start.line, node.name.start.column, node.name.end.column, 'tag-name');
+			if (node.closingTag) {
+				textarea.addModification(node.closingTag.start.line, node.closingTag.start.column, node.closingTag.end.column, 'tag-name');
+			}
+
+			for (let attr of node.attributes) {
+				if (attr.value) {
+					textarea.addModification(attr.value.start.line, attr.value.start.column, attr.value.end.column, 'string');
+				}
+			}
+
+			nodes.push(...node.children);
+		}
+
+		for (const error of result.errors) {
+			console.log(error)
+			let length = 1;
+			if (error.type === 'user' && error.end) {
+				length = error.end.column - error.pos.column;
+			}
+			textarea.addModification(error.pos.line, error.pos.column, error.pos.column + length, 'error');
+		}
+
+		Canvas.build(result.nodes);
 	}
 	textarea.value = defaultXml;
 	Canvas.run();

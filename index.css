@@ -72,7 +72,7 @@
 			padding-inline: 0.5rem;
 			padding-block: 0.25rem;
 
-			.line-number {
+			& > div {
 				text-align: end;
 			}
 		}
@@ -81,32 +81,20 @@
 			padding-inline: 0.5rem;
 			padding-block: 0.25rem;
 
-			grid-row-start: 1;
-			grid-column-start: 2;
-
-			.line {
+			& > div {
 				white-space: pre;
 
-				[data-highlight="tag"] {
+				.tag-name {
 					color: orange;
 				}
 			
-				[data-highlight="string"] {
+				.string {
 					color: lightgreen;
 				}
-			}
-		}
-
-		.error-lines {
-			pointer-events: none;
-			padding-inline: 0.5rem;
-			padding-block: 0.25rem;
-
-			grid-row-start: 1;
-			grid-column-start: 2;
-
-			[data-type="error"] {
-				text-decoration: underline wavy var(--error-clr);
+				
+				.error {
+					text-decoration: underline wavy var(--error-clr);
+				}
 			}
 		}
 
