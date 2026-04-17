@@ -62,7 +62,7 @@ function* eat(str) {
 	}
 	if (state.index + str.length - 1 >= state.str.length) {
 		state.index = state.str.length;
-		yield* eof();
+		yield* eof(str);
 	}
 	yield* expected(str);
 	return '';

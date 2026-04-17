@@ -68,6 +68,21 @@ function init() {
 				length = error.end.column - error.pos.column;
 			}
 			textarea.addModification(error.pos.line, error.pos.column, error.pos.column + length, 'error');
+
+			let text = '';
+			if (error.type === 'user') {
+				text = error.message;
+			} else if (error.type === 'eof') {
+				text = `unexpected end of line, expected: ${error.expected.join(', ')}`;
+			} else if (error.type === 'expected') {
+				text = `unexpected '${error.unexpected}', expected: ${error.expected.join(', ')}`;
+			}
+
+			const element = document.createElement('div');
+			element.append(text);
+			element.classList.add('error-hint')
+
+			textarea.addHover(error.pos.line, error.pos.column, error.pos.column + length, element);
 		}
 
 		Canvas.build(result.nodes);

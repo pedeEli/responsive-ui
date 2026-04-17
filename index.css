@@ -98,6 +98,21 @@
 			}
 		}
 
+		.hovers {
+			position: absolute;
+
+			.error-hint {
+				position: absolute;
+				top: calc(anchor(bottom) + 2px);
+				left: anchor(left);
+
+				background-color: var(--error-clr);
+				padding-inline: 0.5rem;
+				padding-block: 0.25rem;
+				border-radius: 0.125rem;
+			}
+		}
+
 		.cursor {
 			position: absolute;
 			border-left: 1px currentColor solid;
@@ -238,6 +253,14 @@
 
 	summary {
 		display: list-item;
+	}
+
+	[popover] {
+		inset: unset;
+		border: none;
+		background-color: unset;
+		padding: 0;
+		color: inherit;
 	}
 	
 }

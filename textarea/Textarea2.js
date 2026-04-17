@@ -6,6 +6,8 @@ export class Textarea {
 	/** @type {HTMLElement} */
 	#lineNumbers;
 	/** @type {HTMLElement} */
+	#hovers;
+	/** @type {HTMLElement} */
 	#cursor;
 
 	#focused = false;
@@ -40,6 +42,10 @@ export class Textarea {
 		this.#cursor.hidden = true;
 		this.#root.append(this.#cursor);
 
+		this.#hovers = document.createElement('div');
+		this.#hovers.classList.add('hovers');
+		this.#root.append(this.#hovers);
+
 		window.addEventListener('pointerdown', this.#pointerdownHandle.bind(this));
 		window.addEventListener('pointerup', this.#pointerupHandle.bind(this));
 		window.addEventListener('pointermove', this.#pointermoveHandle.bind(this));
@@ -54,6 +60,7 @@ export class Textarea {
 
 		this.#textbox.replaceChildren();
 		this.#lineNumbers.replaceChildren();
+		this.#hovers.replaceChildren();
 
 		const lines = text.split('\n');
 
@@ -253,76 +260,53 @@ export class Textarea {
 
 	// modification
 	/**
-	 * @param {number} line
-	 * @param {number} start
-	 * @param {number} end
+	 * @param {number} lineIndex
+	 * @param {number} columnStart
+	 * @param {number} columnEnd
 	 * @param {string} cls
 	 */
-	addModification(line, start, end, cls) {
-		if (line < 0 || line >= this.#textbox.children.length || start >= end) {
+	addModification(lineIndex, columnStart, columnEnd, cls) {
+		const range = this.#getRange(lineIndex, columnStart, columnEnd);
+		if (!range) {
 			return;
 		}
 
-		let currentIndex = 0;
-		for (let i = 0; i < this.#textbox.children.length; i++) {
-			const lineElement = /** @type {Element} */ (this.#textbox.children.item(i));
-			if (i < line) {
-				currentIndex += lineElement.textContent.length + 1;
-				continue;
-			}
-
-			if (end > lineElement.textContent.length) {
-				return;
-			}
-
-			const range = document.createRange();
-			let iter = document.createNodeIterator(lineElement, NodeFilter.SHOW_TEXT);
-			let node = iter.nextNode();
-			let column = 0;
-			while (node) {
-				const s = column;
-				let e = column + /** @type {Text} */ (node).textContent.length;
-				const nextNode = iter.nextNode();
-				if (!nextNode) {
-					e++;
-				}
-				
-				if (start >= s && start < e) {
-					range.setStart(node, start - s);
-				}
-				if (end >= s && end < e) {
-					range.setEnd(node, end - s);
-				}
-
-				column = e;
-				node = nextNode;
-			}
-
-			if (range.startContainer === document || range.endContainer === document) {
-				return;
-			}
-
-			const wrapper = document.createElement('span');
-			wrapper.classList.add(cls);
-			try {
-				range.surroundContents(wrapper);
-			} catch {
-				wrapper.append(range.extractContents());
-				range.insertNode(wrapper);
-			}
-
-			iter = document.createNodeIterator(lineElement, NodeFilter.SHOW_TEXT);
-			node = iter.nextNode();
-			while (node) {
-				if (/** @type {Text} */ (node).textContent.length === 0) {
-					/** @type {Text} */ (node).remove();
-				}
-				node = iter.nextNode();
-			}
-
+		const wrapper = this.#surroundRange(range);
+		wrapper.classList.add(cls);
+	}
+	/**
+	 * @param {number} lineIndex
+	 * @param {number} columnStart
+	 * @param {number} columnEnd
+	 * @param {HTMLElement} popover
+	 */
+	addHover(lineIndex, columnStart, columnEnd, popover) {
+		const range = this.#getRange(lineIndex, columnStart, columnEnd);
+		if (!range) {
 			return;
 		}
 
+		const wrapper = this.#surroundRange(range);
+
+		popover.popover = 'hint';
+		this.#hovers.append(popover);
+
+		let timeout = 0;
+
+		wrapper.addEventListener('pointerover', () => {
+			clearTimeout(timeout);
+			popover.showPopover({source: wrapper});
+		});
+		wrapper.addEventListener('pointerout', () => {
+			timeout = setTimeout(() => popover.hidePopover(), 200);
+		});
+		popover.addEventListener('pointerover', () => {
+			clearTimeout(timeout);
+			popover.showPopover({source: wrapper});
+		});
+		popover.addEventListener('pointerout', () => {
+			timeout = setTimeout(() => popover.hidePopover(), 200);
+		});
 	}
 
 	// cursor utils
@@ -498,5 +482,89 @@ export class Textarea {
 		}
 
 		return offset;
+	}
+	/**
+	 * @param {number} lineIndex
+	 * @param {number} columnStart
+	 * @param {number} columnEnd
+	 * @returns {null | Range}
+	 */
+	#getRange(lineIndex, columnStart, columnEnd) {
+		if (lineIndex < 0 || lineIndex >= this.#textbox.children.length || columnStart >= columnEnd) {
+			return null;
+		}
+
+		let currentIndex = 0;
+		for (let i = 0; i < this.#textbox.children.length; i++) {
+			const line = /** @type {Element} */ (this.#textbox.children.item(i));
+			if (i < lineIndex) {
+				currentIndex += line.textContent.length + 1;
+				continue;
+			}
+
+			if (columnEnd > line.textContent.length) {
+				return null;
+			}
+
+			const range = document.createRange();
+			let iter = document.createNodeIterator(line, NodeFilter.SHOW_TEXT);
+			let node = iter.nextNode();
+			let column = 0;
+			while (node) {
+				const start = column;
+				let end = column + /** @type {Text} */ (node).textContent.length;
+				const nextNode = iter.nextNode();
+				if (!nextNode) {
+					end++;
+				}
+				
+				if (columnStart >= start && columnStart < end) {
+					range.setStart(node, columnStart - start);
+				}
+				if (columnEnd >= start && columnEnd < end) {
+					range.setEnd(node, columnEnd - start);
+				}
+
+				column = end;
+				node = nextNode;
+			}
+
+			if (range.startContainer === document || range.endContainer === document) {
+				return null;
+			}
+
+			return range;
+		}
+		return null;
+	}
+	/** @param {Range} range */
+	#surroundRange(range) {
+		if (
+			range.startContainer.nodeType === Node.ELEMENT_NODE &&
+			range.startContainer === range.endContainer &&
+			range.startOffset === 0 &&
+			range.endOffset === range.startContainer.textContent?.length
+		) {
+			return /** @type {HTMLElement} */ (range.startContainer);
+		}
+
+		const wrapper = document.createElement('span');
+		try {
+			range.surroundContents(wrapper);
+		} catch {
+			wrapper.append(range.extractContents());
+			range.insertNode(wrapper);
+		}
+
+		const iter = document.createNodeIterator(/** @type {Element} */ (wrapper.parentElement), NodeFilter.SHOW_TEXT);
+		let node = iter.nextNode();
+		while (node) {
+			if (/** @type {Text} */ (node).textContent.length === 0) {
+				/** @type {Text} */ (node).remove();
+			}
+			node = iter.nextNode();
+		}
+
+		return wrapper;
 	}
 }
