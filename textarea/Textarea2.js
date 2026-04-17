@@ -540,12 +540,11 @@ export class Textarea {
 	/** @param {Range} range */
 	#surroundRange(range) {
 		if (
-			range.startContainer.nodeType === Node.ELEMENT_NODE &&
 			range.startContainer === range.endContainer &&
 			range.startOffset === 0 &&
 			range.endOffset === range.startContainer.textContent?.length
 		) {
-			return /** @type {HTMLElement} */ (range.startContainer);
+			return /** @type {HTMLElement} */ (range.startContainer.parentElement);
 		}
 
 		const wrapper = document.createElement('span');

@@ -62,6 +62,7 @@ function init() {
 		}
 
 		for (const error of result.errors) {
+			debugger
 			console.log(error)
 			let length = 1;
 			if (error.type === 'user' && error.end) {
