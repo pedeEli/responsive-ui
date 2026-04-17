@@ -33,7 +33,7 @@ export class Textarea {
 		this.#textbox = document.createElement('div');
 		this.#textbox.classList.add('textbox');
 		this.#textbox.role = 'textbox';
-		// this.#textbox.addEventListener('paste', this.#pasteHandle.bind(this));
+		this.#textbox.addEventListener('paste', this.#pasteHandle.bind(this));
 		this.#root.append(this.#textbox);
 
 		this.#cursor = document.createElement('div');
@@ -257,6 +257,24 @@ export class Textarea {
 
 		this.#setCursorWithIndex(selection, index + 1);
 	}
+	/** @param {ClipboardEvent} event */
+	#pasteHandle(event) {
+		event.preventDefault();
+		const selection = window.getSelection();
+		const data = event.clipboardData?.getData('text');
+		if (!data || !selection) {
+			return;
+		}
+
+		this.#deleteSelection(selection);
+
+		const range = selection.getRangeAt(0);
+		let index = this.#getIndex(range.startContainer, range.startOffset);
+		this.value = this.#value.substring(0, index) + data + this.#value.substring(index);
+
+		this.#setCursorWithIndex(selection, index + data.length);
+	}
+
 
 	// modification
 	/**
