@@ -1,6 +1,7 @@
 /** @type {parser.Parser<any, string[]>} */
 function* eof(...expected) {
 	const pos = yield* sourcePosition();
+	pos.column--;
 	yield {
 		type: 'error',
 		error: {
@@ -54,10 +55,14 @@ function* warn(message, pos) {
 
 /** @type {parser.Parser<string, [string]>} */
 function* eat(str) {
+	const state = yield;
 	if (yield* match(str)) {
-		const state = yield;
 		state.index += str.length;
 		return str;
+	}
+	if (state.index + str.length - 1 >= state.str.length) {
+		state.index = state.str.length;
+		yield* eof();
 	}
 	yield* expected(str);
 	return '';

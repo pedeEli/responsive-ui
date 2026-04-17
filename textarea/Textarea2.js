@@ -49,6 +49,7 @@ export class Textarea {
 
 	/** @param {string} text */
 	set value(text) {
+		text = text.replaceAll(' ', '\u00a0');
 		this.#value = text;
 
 		this.#textbox.replaceChildren();
@@ -87,7 +88,7 @@ export class Textarea {
 			return;
 		}
 
-		if (!this.#root.contains(event.target)) {
+		if (!this.#textbox.contains(event.target)) {
 			this.#cursor.hidden = true;
 			this.#focused = false;
 			return;
