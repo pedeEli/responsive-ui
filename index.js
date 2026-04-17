@@ -1,7 +1,7 @@
 import './layout/index.js';
 import './render/index.js';
 import {Canvas} from './core/Canvas.js';
-import {Textarea} from './textarea/Textarea2.js';
+import {Textarea} from './textarea/Textarea.js';
 import {parse} from './parser/index.js';
 
 

@@ -1,16 +1,14 @@
-import {parse} from '../parser/index.js';
-
 export class Textarea {
-	/** @type {HTMLElement} */
+		/** @type {HTMLElement} */
 	#root;
 	/** @type {HTMLElement} */
 	#textbox;
 	/** @type {HTMLElement} */
 	#lineNumbers;
 	/** @type {HTMLElement} */
-	#cursor;
+	#hovers;
 	/** @type {HTMLElement} */
-	#errors;
+	#cursor;
 
 	#focused = false;
 	#pointerdown = false;
@@ -20,8 +18,8 @@ export class Textarea {
 
 	#value = '';
 
-	/** @type {null | ((nodes: parser.Node[]) => void)} */
-	onupdate = null;
+	/** @type {null | ((value: string) => void)} */
+	onchange = null;
 
 	/** @param {HTMLElement} root */
 	constructor(root) {
@@ -30,27 +28,23 @@ export class Textarea {
 
 		this.#lineNumbers = document.createElement('div');
 		this.#lineNumbers.classList.add('line-numbers');
-		this.#lineNumbers.dataset.type = 'line-numbers';
 		this.#root.append(this.#lineNumbers);
 
 		this.#textbox = document.createElement('div');
 		this.#textbox.classList.add('textbox');
 		this.#textbox.role = 'textbox';
-		this.#textbox.dataset.type = 'textbox';
 		this.#textbox.addEventListener('paste', this.#pasteHandle.bind(this));
 		this.#root.append(this.#textbox);
 
 		this.#cursor = document.createElement('div');
 		this.#cursor.classList.add('cursor');
-		this.#cursor.dataset.type = 'cursor';
 		this.#cursor.ariaHidden = 'true';
 		this.#cursor.hidden = true;
 		this.#root.append(this.#cursor);
 
-		this.#errors = document.createElement('div');
-		this.#errors.classList.add('error-lines');
-		this.#errors.dataset.type = 'error-lines';
-		this.#root.append(this.#errors);
+		this.#hovers = document.createElement('div');
+		this.#hovers.classList.add('hovers');
+		this.#root.append(this.#hovers);
 
 		window.addEventListener('pointerdown', this.#pointerdownHandle.bind(this));
 		window.addEventListener('pointerup', this.#pointerupHandle.bind(this));
@@ -59,13 +53,49 @@ export class Textarea {
 		window.addEventListener('keydown', this.#keydownHandle_ValueModification.bind(this));
 	}
 
+	/** @param {string} text */
+	set value(text) {
+		text = text.replaceAll(' ', '\u00a0');
+		this.#value = text;
+
+		this.#textbox.replaceChildren();
+		this.#lineNumbers.replaceChildren();
+		this.#hovers.replaceChildren();
+
+		const lines = text.split('\n');
+
+		for (let i = 0; i < lines.length; i++) {
+			const lineNumber = document.createElement('div');
+			lineNumber.append(`${i + 1}`);
+			this.#lineNumbers.append(lineNumber);
+		}
+
+		for (const line of lines) {
+			const element = document.createElement('div');
+			element.append(line === '' ? document.createElement('br') : line);
+			this.#textbox.append(element);
+		}
+
+		this.onchange?.(text);
+
+		for (let i = 0; i < text.length; i++) {
+			const range = this.#getRangeFromIndex(i);
+			if (range) {
+				const index = this.#getIndex(range.startContainer, range.startOffset);
+				if (i !== index) {
+					debugger
+				}
+			}
+		}
+	}
+
 	/** @param {PointerEvent} event */
 	#pointerdownHandle(event) {
 		if (!(event.target instanceof Node)) {
 			return;
 		}
 
-		if (!this.#root.contains(event.target)) {
+		if (!this.#textbox.contains(event.target)) {
 			this.#cursor.hidden = true;
 			this.#focused = false;
 			return;
@@ -77,18 +107,15 @@ export class Textarea {
 
 		this.#setCursorWithPoint(event.x, event.y);
 	}
-
 	#pointerupHandle() {
 		this.#pointerdown = false;
 	}
-
 	/** @param {PointerEvent} event */
 	#pointermoveHandle(event) {
 		if (this.#pointerdown) {
 			this.#setCursorWithPoint(event.x, event.y);
 		}
 	}
-
 	/** @param {KeyboardEvent} event */
 	#keydownHandle_CursorPosition(event) {
 		if (!this.#focused) {
@@ -131,17 +158,17 @@ export class Textarea {
 					const range = selection.getRangeAt(0).cloneRange();
 					range.collapse(selection.direction === 'backward');
 					
-					this.#storedColumn ??= this.#getColumn(range.startContainer) + range.startOffset;
+					this.#storedColumn ??= this.#getColumn(range.startContainer, range.startOffset);
 					selection.modify(alter, 'backward', 'lineboundary');
 					
-					const line = this.#getLine(range.startContainer).previousElementSibling;
+					const line = this.#getLineNode(range.startContainer)?.previousElementSibling;
 					if (!(line instanceof HTMLElement)) {
 						break;
 					}
 	
 					selection.modify(alter, 'backward', 'character');
 					
-					const length = this.#getLength(line) - 1;
+					const length = line.textContent.length;
 					for (let i = length; i > this.#storedColumn; i--) {
 						selection.modify(alter, 'backward', 'character');
 					}
@@ -155,14 +182,14 @@ export class Textarea {
 					this.#storedColumn ??= this.#getColumn(range.startContainer) + range.startOffset;
 					selection.modify(alter, 'forward', 'lineboundary');
 					
-					const line = this.#getLine(range.startContainer).nextElementSibling;
+					const line = this.#getLineNode(range.startContainer)?.nextElementSibling;
 					if (!(line instanceof HTMLElement)) {
 						break;
 					}
 	
 					selection.modify(alter, 'forward', 'character');
 					
-					const length = this.#getLength(line) - 1;
+					const length = line.textContent.length;
 					for (let i = 0; i < Math.min(length, this.#storedColumn); i++) {
 						selection.modify(alter, 'forward', 'character');
 					}
@@ -170,8 +197,8 @@ export class Textarea {
 				break;
 		}
 
-		if (selection.anchorNode instanceof Element) {
-			this.#setCursorWithRect(selection.anchorNode.getBoundingClientRect());
+		if (selection.focusNode instanceof Element) {
+			this.#setCursorWithRect(selection.focusNode.getBoundingClientRect());
 			return;
 		}
 
@@ -179,7 +206,6 @@ export class Textarea {
 		range.collapse(selection.direction === 'backward');
 		this.#setCursorWithRect(range.getBoundingClientRect());
 	}
-	
 	/** @param {KeyboardEvent} event */
 	#keydownHandle_ValueModification(event) {
 		if (!this.#focused) {
@@ -204,11 +230,20 @@ export class Textarea {
 		}
 
 		if (selection.type === 'Caret' && isRemoveChar) {
+			const range = selection.getRangeAt(0);
+			const index = this.#getIndex(range.startContainer, range.startOffset);
+			if (
+				event.key === 'Backspace' && index === 0 ||
+				event.key === 'Delete' && index === this.#value.length
+			) {
+				return;
+			}
+
 			const direction = event.key === 'Backspace' ? 'backward' : 'forward';
 			const granularity = event.ctrlKey ? 'word' : 'character';
 			selection.modify('extend', direction, granularity);
 		}
-
+		
 		this.#deleteSelection(selection);
 
 		if (isRemoveChar) {
@@ -216,13 +251,12 @@ export class Textarea {
 		}
 
 		const range = selection.getRangeAt(0);
-		let index = this.#getStart(range.startContainer) + range.startOffset;
+		let index = this.#getIndex(range.startContainer, range.startOffset);
 		const char = event.key === 'Enter' ? '\n' : event.key;
 		this.value = this.#value.substring(0, index) + char + this.#value.substring(index);
 
 		this.#setCursorWithIndex(selection, index + 1);
 	}
-
 	/** @param {ClipboardEvent} event */
 	#pasteHandle(event) {
 		event.preventDefault();
@@ -235,214 +269,69 @@ export class Textarea {
 		this.#deleteSelection(selection);
 
 		const range = selection.getRangeAt(0);
-		let index = this.#getStart(range.startContainer) + range.startOffset;
+		let index = this.#getIndex(range.startContainer, range.startOffset);
 		this.value = this.#value.substring(0, index) + data + this.#value.substring(index);
 
 		this.#setCursorWithIndex(selection, index + data.length);
 	}
 
 
-	/** @param {string} v */
-	set value(v) {
-		this.#value = v;
-
-		while (this.#textbox.firstChild) {
-			this.#textbox.firstChild.remove();
-		}
-		while (this.#lineNumbers.firstChild) {
-			this.#lineNumbers.firstChild.remove();
-		}
-
-		const result = parse(this.#value);
-		for (const error of result.errors) {
-			console.error(error);
-		}
-		this.#updateErrors(result.errors);
-		for (const warning of result.warnings) {
-			console.error(warning);
-		}
-
-		this.onupdate?.(result.nodes);
-		if (result.nodes.length === 0) {
+	// modification
+	/**
+	 * @param {number} lineIndex
+	 * @param {number} columnStart
+	 * @param {number} columnEnd
+	 * @param {string} cls
+	 */
+	addModification(lineIndex, columnStart, columnEnd, cls) {
+		const range = this.#getRange(lineIndex, columnStart, columnEnd);
+		if (!range) {
 			return;
 		}
 
-		const lines = this.#value.split('\n');
-
-		for (let i = 0; i < lines.length; i++) {
-			const lineNumber = document.createElement('div');
-			lineNumber.classList.add('line-number');
-			lineNumber.dataset.type = 'line-number';
-			lineNumber.dataset.line = `${i}`;
-			lineNumber.append(`${i + 1}`);
-			this.#lineNumbers.append(lineNumber);
+		const wrapper = this.#surroundRange(range);
+		wrapper.classList.add(cls);
+	}
+	/**
+	 * @param {number} lineIndex
+	 * @param {number} columnStart
+	 * @param {number} columnEnd
+	 * @param {HTMLElement} popover
+	 */
+	addHover(lineIndex, columnStart, columnEnd, popover) {
+		const range = this.#getRange(lineIndex, columnStart, columnEnd);
+		if (!range) {
+			return;
 		}
 
-		/** @type {textarea.Highlight[][]} */
-		const highlights = [];
-		/**
-		 * @param {parser.SourceRegion<any>} region
-		 * @param {textarea.Highlight['type']} type
-		 */
-		function setHighlight(region, type) {
-			let index = region.start.index;
-			for (let line = region.start.line; line <= region.end.line; line++) {
-				let highlight = highlights.at(line);
-				if (!highlight) {
-					highlight = [];
-					highlights[line] = highlight;
-				}
-				const first = line === region.start.line;
-				const last = line === region.end.line;
-				/** @type {parser.SourcePosition} */
-				const start = {
-					index,
-					line,
-					column: first ? region.start.column : 0
-				};
-				index += lines[line].length + 1;
-				if (first) {
-					index -= region.start.column;
-				}
-				/** @type {parser.SourcePosition} */
-				const end = {
-					index: last ? region.end.index : index,
-					line,
-					column: last ? region.end.column : (lines[line].length + 1)
-				};
-				highlight.push({
-					type,
-					region: {
-						value: null,
-						start,
-						end
-					}
-				})
-			}
-		}
+		const wrapper = this.#surroundRange(range);
 
-		const nodes = [...result.nodes];
-		while (nodes.length > 0) {
-			const node = /** @type {parser.Node} */ (nodes.pop());
+		popover.popover = 'hint';
+		this.#hovers.append(popover);
 
-			setHighlight(node.name, 'tag');
-			if (node.closingTag) {
-				setHighlight(node.closingTag, 'tag');
-			}
+		let timeout = 0;
 
-			for (const attr of node.attributes) {
-				if (attr.value) {
-					setHighlight(attr.value, 'string');
-				}
-			}
-
-			nodes.push(...node.children);
-		}
-
-		let currentIndex = 0;
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			const lineStartIndex = currentIndex;
-			const lineLength = line.length + 1;
-			const lineEndIndex = currentIndex = currentIndex + lineLength;
-
-			const lineElement = document.createElement('div');
-			lineElement.classList.add('line');
-			lineElement.dataset.type = 'line';
-			lineElement.dataset.length = `${lineLength}`;
-			lineElement.dataset.start = `${lineStartIndex}`;
-			lineElement.dataset.end = `${lineEndIndex}`;
-			this.#textbox.append(lineElement);
-
-			const highlight = highlights.at(i);
-			if (!highlight) {
-				const lineSegment = document.createElement('span');
-				lineSegment.dataset.type = 'segment';
-				lineSegment.dataset.start = `${lineStartIndex}`;
-				lineSegment.dataset.end = `${lineEndIndex}`;
-				lineSegment.dataset.length = `${lineLength}`;
-				lineSegment.dataset.column = '0';
-
-				if (line === '') {
-					lineSegment.append(document.createElement('br'));
-				} else {
-					lineSegment.append(line)
-				}
-				lineElement.append(lineSegment);
-				continue;
-			}
-
-			highlight.sort((a, b) => a.region.start.index - b.region.start.index);
-
-			let column = 0;
-			let index = lineStartIndex;
-			for (const {type, region} of highlight) {
-				if (region.start.column !== 0) {
-					const start = index;
-					const end = region.start.index;
-
-					const lineSegment = document.createElement('span');
-					lineSegment.dataset.type = 'segment';
-					lineSegment.dataset.start = `${start}`;
-					lineSegment.dataset.end = `${end}`;
-					lineSegment.dataset.length = `${end - start}`;
-					lineSegment.dataset.column = `${column}`;
-					lineSegment.append(line.substring(column, region.start.column));
-					lineElement.append(lineSegment);
-				}
-
-				const start = region.start.index;
-				let end = region.end.index;
-				if (region.end.column === line.length) {
-					end++;
-				}
-
-				const lineSegment = document.createElement('span');
-				lineSegment.dataset.type = 'segment';
-				lineSegment.dataset.highlight = type;
-				lineSegment.dataset.start = `${start}`;
-				lineSegment.dataset.end = `${end}`;
-				lineSegment.dataset.length = `${end - start}`;
-				lineSegment.dataset.column = `${region.start.column}`;
-				lineSegment.append(line.substring(region.start.column, region.end.column));
-				lineElement.append(lineSegment);
-
-				column = region.end.column;
-				index = region.end.index;
-			}
-			if (column < line.length) {
-				const text = line.substring(column);
-
-				const lineSegment = document.createElement('span');
-				lineSegment.dataset.type = 'segment';
-				lineSegment.dataset.start = `${index}`;
-				lineSegment.dataset.end = `${lineEndIndex}`;
-				lineSegment.dataset.length = `${lineEndIndex - index}`;
-				lineSegment.dataset.column = `${column}`;
-				lineSegment.append(text);
-				lineElement.append(lineSegment);
-			}
-		}
+		wrapper.addEventListener('pointerover', () => {
+			clearTimeout(timeout);
+			popover.showPopover({source: wrapper});
+		});
+		wrapper.addEventListener('pointerout', () => {
+			timeout = setTimeout(() => popover.hidePopover(), 200);
+		});
+		popover.addEventListener('pointerover', () => {
+			clearTimeout(timeout);
+			popover.showPopover({source: wrapper});
+		});
+		popover.addEventListener('pointerout', () => {
+			timeout = setTimeout(() => popover.hidePopover(), 200);
+		});
 	}
 
-
-	// cursor ======================================================
+	// cursor utils
 	#showCursor() {
 		this.#cursor.hidden = true;
 		this.#cursor.getBoundingClientRect();
 		this.#cursor.hidden = false;
-	}
-	/**
-	 * @param {DOMRect} rect
-	 * @param {'left' | 'right'} [side='left']
-	 */
-	#setCursorWithRect(rect, side = 'left') {
-		const parent = this.#root.getBoundingClientRect();
-		const left = rect[side] - parent.left;
-		const top = rect.top - parent.top;
-		this.#cursor.style.left = `${left}px`;
-		this.#cursor.style.top = `${top}px`;
-		this.#showCursor();
 	}
 	/**
 	 * @param {number} x
@@ -464,6 +353,18 @@ export class Textarea {
 		const rect = range.getBoundingClientRect();
 		this.#setCursorWithRect(rect);
 	}
+	/**
+	 * @param {DOMRect} rect
+	 * @param {'left' | 'right'} [side='left']
+	 */
+	#setCursorWithRect(rect, side = 'left') {
+		const parent = this.#root.getBoundingClientRect();
+		const left = rect[side] - parent.left;
+		const top = rect.top - parent.top;
+		this.#cursor.style.left = `${left}px`;
+		this.#cursor.style.top = `${top}px`;
+		this.#showCursor();
+	}
 	/** 
 	 * @param {number} index
 	 * @param {Selection} selection
@@ -483,87 +384,80 @@ export class Textarea {
 	}
 	/** @param {number} index */
 	#getRangeFromIndex(index) {
+		let currentIndex = 0;
 		for (const line of this.#textbox.children) {
-			const start = this.#getStart(line);
-			const end = this.#getEnd(line);
+			const start = currentIndex;
+			const end = currentIndex + line.textContent.length + 1;
 			if (index < start || index >= end) {
+				currentIndex = end;
 				continue;
 			}
 
-			if (start + 1 === end) {
+			if (line.textContent === '') {
 				const range = document.createRange();
 				range.setStart(line, 0);
 				return range;
 			}
 
-			for (const segment of line.children) {
-				const start = this.#getStart(segment);
-				const end = this.#getEnd(segment);
+			const iter = document.createNodeIterator(line, NodeFilter.SHOW_TEXT);
+			let currentNode = iter.nextNode();
+			while (currentNode) {
+				const node = /** @type {Text} */ (currentNode);
+				const start = currentIndex;
+				let end = currentIndex + node.textContent.length;
+				currentNode = iter.nextNode();
+				if (!currentNode) {
+					end++;
+				}
+
 				if (index < start || index >= end) {
+					currentIndex = end;
 					continue;
 				}
 
 				const range = document.createRange();
-				range.setStart( /** @type {Node} */ (segment.firstChild), index - start);
+				range.setStart(node, index - start);
 				return range;
 			}
 		}
 		return null;
 	}
 
-	// dataset helpers =============================================
-	/** @param {Node} node */
-	#getColumn(node) {
-		if (node instanceof Text) {
-			const segment = node.parentElement;
-			if (segment && segment.dataset.column) {
-				return parseInt(segment.dataset.column);
-			}
-		}
-		return 0;
-	}
-	/** @param {Node} node */
-	#getStart(node) {
-		if (node instanceof Text) {
-			const segment = node.parentElement;
-			if (segment && segment.dataset.start) {
-				return parseInt(segment.dataset.start);
-			}
-		}
-		if (node instanceof HTMLElement && node.dataset.start) {
-			return parseInt(node.dataset.start);
-		}
-		return 0;
-	}
-	/** @param {Node} node */
-	#getEnd(node) {
-		if (node instanceof Text) {
-			const segment = node.parentElement;
-			if (segment && segment.dataset.end) {
-				return parseInt(segment.dataset.end);
-			}
-		}
-		if (node instanceof HTMLElement && node.dataset.end) {
-			return parseInt(node.dataset.end);
-		}
-		return 0;
-	}
-	/** @param {Node} node */
-	#getLine(node) {
-		if (node instanceof Text) {
-			return /** @type {HTMLElement} */ (node.parentElement?.parentElement);
-		}
-		return /** @type {HTMLElement} */ (node.parentElement);
-	}
-	/** @param {HTMLElement} element */
-	#getLength(element) {
-		if (element.dataset.length) {
-			return parseInt(element.dataset.length);
-		}
-		return 0;
-	}
 
-	// selection stuff ===================================
+	// utils
+	/**
+	 * @param {Node} node
+	 * @param {number} offset
+	 */
+	#getColumn(node, offset = 0) {
+		for (const line of this.#textbox.children) {
+			if (!line.contains(node)) {
+				continue;
+			}
+
+			let column = offset;
+			const iter = document.createNodeIterator(line, NodeFilter.SHOW_TEXT);
+			let currentNode = iter.nextNode();
+			while (currentNode) {
+				if (currentNode === node) {
+					return column;
+				}
+				column += /** @type {Text} */ (currentNode).textContent.length;
+				currentNode = iter.nextNode();
+			}
+		}
+
+		return offset;
+	}
+	/** @param {Node} node */
+	#getLineNode(node) {
+		for (const line of this.#textbox.children) {
+			if (line.contains(node)) {
+				return line;
+			}
+		}
+		return null;
+	}
 	/** @param {Selection} selection */
 	#deleteSelection(selection) {
 		if (selection.type === 'Caret') {
@@ -571,66 +465,123 @@ export class Textarea {
 		}
 
 		const range = selection.getRangeAt(0);
-		const start = this.#getStart(range.startContainer) + range.startOffset;
-		const end = this.#getStart(range.endContainer) + range.endOffset;
+		const start = this.#getIndex(range.startContainer, range.startOffset);
+		const end = this.#getIndex(range.endContainer, range.endOffset);
 		this.value = this.#value.substring(0, start) + this.#value.substring(end);
 
 		this.#setCursorWithIndex(selection, start);
 	}
+	/**
+	 * @param {Node} node
+	 * @param {number} [offset=0]
+	 */
+	#getIndex(node, offset = 0) {
+		let index = offset;
 
-	// errors
-	/** @param {parser.Error[]} errors */
-	#updateErrors(errors) {
-		while (this.#errors.firstChild) {
-			this.#errors.firstChild.remove();
-		}
-
-		/** @type {parser.Error[][]} */
-		const lines = [];
-
-		for (const error of errors) {
-			let line = lines.at(error.pos.line);
-			if (!line) {
-				line = [];
-				lines[error.pos.line] = line;
-			}
-			line.push(error);
-		}
-
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines.at(i);
-
-			const errorLine = document.createElement('div');
-			errorLine.classList.add('error-line');
-			errorLine.dataset.type = 'error-line';
-			this.#errors.append(errorLine);
-			
-			if (!line) {
-				errorLine.append(document.createElement('br'));
+		for (const line of this.#textbox.children) {
+			if (!line.contains(node)) {
+				index += line.textContent.length + 1;
 				continue;
 			}
 
-			line.sort((a, b) => a.pos.column - b.pos.column);
+			if (line === node) {
+				return index;
+			}
 
-			let column = 0;
-			for (const error of line) {
-				if (error.pos.column !== 0) {
-					const length = error.pos.column - column;
-					errorLine.append('\u00a0'.repeat(length));
+			const iter = document.createNodeIterator(line, NodeFilter.SHOW_TEXT);
+			let currentNode = iter.nextNode();
+			while (currentNode) {
+				if (currentNode === node) {
+					return index;
 				}
-
-				let length = 1;
-				if (error.type === 'user' && error.end) {
-					length = error.end.column - error.pos.column;
-				}
-
-				const node = document.createElement('span');
-				node.dataset.type = 'error';
-				node.append('\u00a0'.repeat(length));
-				errorLine.append(node);
-
-				column = error.pos.column + length;
+				index += /** @type {Text} */ (currentNode).textContent.length;
+				currentNode = iter.nextNode();
 			}
 		}
+
+		return offset;
+	}
+	/**
+	 * @param {number} lineIndex
+	 * @param {number} columnStart
+	 * @param {number} columnEnd
+	 * @returns {null | Range}
+	 */
+	#getRange(lineIndex, columnStart, columnEnd) {
+		if (lineIndex < 0 || lineIndex >= this.#textbox.children.length || columnStart >= columnEnd) {
+			return null;
+		}
+
+		let currentIndex = 0;
+		for (let i = 0; i < this.#textbox.children.length; i++) {
+			const line = /** @type {Element} */ (this.#textbox.children.item(i));
+			if (i < lineIndex) {
+				currentIndex += line.textContent.length + 1;
+				continue;
+			}
+
+			if (columnEnd > line.textContent.length) {
+				return null;
+			}
+
+			const range = document.createRange();
+			let iter = document.createNodeIterator(line, NodeFilter.SHOW_TEXT);
+			let node = iter.nextNode();
+			let column = 0;
+			while (node) {
+				const start = column;
+				let end = column + /** @type {Text} */ (node).textContent.length;
+				const nextNode = iter.nextNode();
+				if (!nextNode) {
+					end++;
+				}
+				
+				if (columnStart >= start && columnStart < end) {
+					range.setStart(node, columnStart - start);
+				}
+				if (columnEnd >= start && columnEnd < end) {
+					range.setEnd(node, columnEnd - start);
+				}
+
+				column = end;
+				node = nextNode;
+			}
+
+			if (range.startContainer === document || range.endContainer === document) {
+				return null;
+			}
+
+			return range;
+		}
+		return null;
+	}
+	/** @param {Range} range */
+	#surroundRange(range) {
+		if (
+			range.startContainer === range.endContainer &&
+			range.startOffset === 0 &&
+			range.endOffset === range.startContainer.textContent?.length
+		) {
+			return /** @type {HTMLElement} */ (range.startContainer.parentElement);
+		}
+
+		const wrapper = document.createElement('span');
+		try {
+			range.surroundContents(wrapper);
+		} catch {
+			wrapper.append(range.extractContents());
+			range.insertNode(wrapper);
+		}
+
+		const iter = document.createNodeIterator(/** @type {Element} */ (wrapper.parentElement), NodeFilter.SHOW_TEXT);
+		let node = iter.nextNode();
+		while (node) {
+			if (/** @type {Text} */ (node).textContent.length === 0) {
+				/** @type {Text} */ (node).remove();
+			}
+			node = iter.nextNode();
+		}
+
+		return wrapper;
 	}
 }
