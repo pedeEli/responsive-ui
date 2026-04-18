@@ -7,6 +7,7 @@
 		--base-clr-dark: oklch(from var(--base-clr) calc(l - 0.1) c h);
 		--base-clr-darkest: oklch(from var(--base-clr-dark) calc(l - 0.07) c h);
 		--error-clr: oklch(from red 55% 50% h);
+		--warning-clr: oklch(from orange calc(l - 0.1) c h);
 		color: oklch(from white calc(l - 0.05) c h);
 	}
 
@@ -53,6 +54,34 @@
 		font-weight: bold;
 		color: var(--base-clr-dark);
 	}
+
+	.tag-name-highlight {
+		color: orange;
+	}
+
+	.string-highlight {
+		color: lightgreen;
+	}
+	
+	.error-highlight {
+		text-decoration: underline wavy var(--error-clr);
+	}
+
+	.warning-highlight {
+		text-decoration: underline wavy var(--warning-clr);
+	}
+
+	.error-hint, .warning-hint {
+		padding-inline: 0.5rem;
+		padding-block: 0.25rem;
+		border-radius: 0.125rem;
+	}
+	.error-hint {
+		background-color: var(--error-clr);
+	}
+	.warning-hint {
+		background-color: var(--warning-clr);
+	}
 }
 
 @layer textarea {
@@ -80,36 +109,16 @@
 		.textbox {
 			padding-inline: 0.5rem;
 			padding-block: 0.25rem;
-
-			& > div {
-				white-space: pre;
-
-				.tag-name {
-					color: orange;
-				}
-			
-				.string {
-					color: lightgreen;
-				}
-				
-				.error {
-					text-decoration: underline wavy var(--error-clr);
-				}
-			}
+			white-space: pre;
 		}
 
 		.hovers {
 			position: absolute;
 
-			.error-hint {
+			& > [popover] {
 				position: absolute;
 				top: calc(anchor(bottom) + 2px);
 				left: anchor(left);
-
-				background-color: var(--error-clr);
-				padding-inline: 0.5rem;
-				padding-block: 0.25rem;
-				border-radius: 0.125rem;
 			}
 		}
 
@@ -222,6 +231,7 @@
 	[type='reset'],
 	[type='submit'] {
 		-webkit-appearance: button;
+		appearance: button;
 	}
 
 	legend {
@@ -239,6 +249,7 @@
 
 	[type='search'] {
 		-webkit-appearance: textfield;
+		appearance: textfield;
 		outline-offset: -2px;
 	}
 
@@ -255,6 +266,7 @@
 		display: list-item;
 	}
 
+	/* not part of the above mentioned reset */
 	[popover] {
 		inset: unset;
 		border: none;
