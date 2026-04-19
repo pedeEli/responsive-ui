@@ -3,6 +3,7 @@ import './render/index.js';
 import {Canvas} from './core/Canvas.js';
 import {Textarea} from './textarea/Textarea.js';
 import {parse} from './parser/index.js';
+import {Splitpanel} from './splitpanel/Splitpanel.js';
 
 
 const defaultXml = `<div
@@ -43,6 +44,17 @@ function setNodeHighlights(textarea, nodes) {
 		ns.push(...node.children);
 	}
 }
+/** @param {parser.Error} error */
+function errorToMessage(error) {
+	if (error.type === 'user') {
+		return error.message;
+	} else if (error.type === 'eof') {
+		return `unexpected end of string, expected: ${error.expected.join(', ')}`;
+	} else if (error.type === 'expected') {
+		return `unexpected '${error.unexpected}', expected: ${error.expected.join(', ')}`;
+	}
+	return '';
+}
 /**
  * @param {Textarea} textarea
  * @param {parser.Error[]} errors
@@ -55,17 +67,8 @@ function setErrorHighlights(textarea, errors) {
 		}
 		textarea.addModification(error.pos.line, error.pos.column, error.pos.column + length, 'error-highlight');
 
-		let text = '';
-		if (error.type === 'user') {
-			text = error.message;
-		} else if (error.type === 'eof') {
-			text = `unexpected end of line, expected: ${error.expected.join(', ')}`;
-		} else if (error.type === 'expected') {
-			text = `unexpected '${error.unexpected}', expected: ${error.expected.join(', ')}`;
-		}
-
 		const element = document.createElement('div');
-		element.append(text);
+		element.append(errorToMessage(error));
 		element.classList.add('error-hint');
 
 		textarea.addHover(error.pos.line, error.pos.column, error.pos.column + length, element);
@@ -87,16 +90,37 @@ function setWarningHighlights(textarea, warnings) {
 	}
 }
 
-function init() {
-	/** @type {HTMLCanvasElement | null} */
-	const canvas = document.querySelector('#canvas');
-	/** @type {HTMLElement | null} */
-	const xmlInput = document.querySelector('#xml-input');
+function createLastElements() {
+	const last = document.createElement('div');
+	
+	const canvas = document.createElement('canvas');
+	last.append(canvas);
+	
+	const errors = document.createElement('div');
+	errors.classList.add('errors');
+	errors.hidden = true;
+	last.append(errors);
+	
+	const errorsHeader = document.createElement('h2');
+	errorsHeader.append('Errors');
+	errors.append(errorsHeader);
+	
+	const errorsList = document.createElement('ul');
+	errors.append(errorsList);
 
-	if (!canvas || !xmlInput) {
-		console.error('something went wrong');
+	return {last, errors, canvas, errorsList};
+}
+
+function init() {
+	const splitpanelRoot = document.getElementById('splitpanel')
+
+	if (!splitpanelRoot) {
+		console.error('splitpanel root not found');
 		return;
 	}
+
+	const first = document.createElement('div');
+	const {last, canvas, errors, errorsList} = createLastElements();
 
 	const ctx = canvas.getContext('2d');
 	if (!ctx) {
@@ -106,7 +130,7 @@ function init() {
 
 	Canvas.init(canvas, ctx);
 	
-	const textarea = new Textarea(xmlInput);
+	const textarea = new Textarea(first);
 	textarea.onchange = (value) => {
 		const result = parse(value);
 		
@@ -114,9 +138,27 @@ function init() {
 		setErrorHighlights(textarea, result.errors);
 		setWarningHighlights(textarea, result.warnings);
 
-		Canvas.build(result.nodes);
+		if (result.errors.length === 0) {
+			canvas.hidden = false;
+			errors.hidden = true;
+			Canvas.build(result.nodes);
+			return;
+		}
+
+		canvas.hidden = true;
+		errors.hidden = false;
+		errorsList.replaceChildren();
+		for (const error of result.errors) {
+			const element = document.createElement('li');
+			element.append(errorToMessage(error));
+			errorsList.append(element);
+		}
+
+
 	}
 	textarea.value = defaultXml;
 	Canvas.run();
+
+	new Splitpanel(splitpanelRoot, first, last);
 }
 init();

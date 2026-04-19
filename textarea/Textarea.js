@@ -33,6 +33,15 @@ export class Textarea {
 		this.#textbox = document.createElement('div');
 		this.#textbox.classList.add('textbox');
 		this.#textbox.role = 'textbox';
+		this.#textbox.tabIndex = 0;
+		this.#textbox.contentEditable = 'true';
+		this.#textbox.ariaMultiLine = 'true';
+		this.#textbox.spellcheck = false;
+		this.#textbox.autocapitalize = 'none';
+		this.#textbox.autocorrect = false;
+		this.#textbox.writingSuggestions = 'false';
+		this.#textbox.translate = false;
+		this.#textbox.ariaAutoComplete = 'list';
 		this.#textbox.addEventListener('paste', this.#pasteHandle.bind(this));
 		this.#root.append(this.#textbox);
 
@@ -51,6 +60,12 @@ export class Textarea {
 		window.addEventListener('pointermove', this.#pointermoveHandle.bind(this));
 		window.addEventListener('keydown', this.#keydownHandle_CursorPosition.bind(this));
 		window.addEventListener('keydown', this.#keydownHandle_ValueModification.bind(this));
+		document.addEventListener('selectionchange', () => {
+			const selection = window.getSelection();
+			if (selection) {
+				this.#setCursorWithSelection(selection);
+			}
+		})
 	}
 
 	/** @param {string} text */
@@ -103,17 +118,16 @@ export class Textarea {
 
 		this.#pointerdown = true;
 		this.#focused = true;
+		this.#storedColumn = null;
 		this.#showCursor();
-
-		this.#setCursorWithPoint(event.x, event.y);
 	}
 	#pointerupHandle() {
 		this.#pointerdown = false;
 	}
-	/** @param {PointerEvent} event */
-	#pointermoveHandle(event) {
-		if (this.#pointerdown) {
-			this.#setCursorWithPoint(event.x, event.y);
+	#pointermoveHandle() {
+		const selection = window.getSelection();
+		if (this.#pointerdown && selection && selection.rangeCount !== 0) {
+			this.#setCursorWithSelection(selection);
 		}
 	}
 	/** @param {KeyboardEvent} event */
@@ -196,15 +210,6 @@ export class Textarea {
 				}
 				break;
 		}
-
-		if (selection.focusNode instanceof Element) {
-			this.#setCursorWithRect(selection.focusNode.getBoundingClientRect());
-			return;
-		}
-
-		const range = selection.getRangeAt(0).cloneRange();
-		range.collapse(selection.direction === 'backward');
-		this.#setCursorWithRect(range.getBoundingClientRect());
 	}
 	/** @param {KeyboardEvent} event */
 	#keydownHandle_ValueModification(event) {
@@ -255,7 +260,11 @@ export class Textarea {
 		const char = event.key === 'Enter' ? '\n' : event.key;
 		this.value = this.#value.substring(0, index) + char + this.#value.substring(index);
 
-		this.#setCursorWithIndex(selection, index + 1);
+		const cursorRange = this.#getRangeFromIndex(index + 1);
+		if (cursorRange) {
+			selection.removeAllRanges();
+			selection.addRange(cursorRange);
+		}
 	}
 	/** @param {ClipboardEvent} event */
 	#pasteHandle(event) {
@@ -272,7 +281,11 @@ export class Textarea {
 		let index = this.#getIndex(range.startContainer, range.startOffset);
 		this.value = this.#value.substring(0, index) + data + this.#value.substring(index);
 
-		this.#setCursorWithIndex(selection, index + data.length);
+		const cursorRange = this.#getRangeFromIndex(index + data.length);
+		if (cursorRange) {
+			selection.removeAllRanges();
+			selection.addRange(cursorRange);
+		}
 	}
 
 
@@ -333,24 +346,28 @@ export class Textarea {
 		this.#cursor.getBoundingClientRect();
 		this.#cursor.hidden = false;
 	}
-	/**
-	 * @param {number} x
-	 * @param {number} y
-	 */
-	#setCursorWithPoint(x, y) {
-		const pos = document.caretPositionFromPoint(x, y);
-		if (!pos || !this.#textbox.contains(pos.offsetNode)) {
+	/** @param {Selection} selection */
+	#setCursorWithSelection(selection) {
+		const range = selection.getRangeAt(0);
+		/** @type {Node} */
+		let container;
+		let offset = 0;
+		if (selection.direction === 'forward') {
+			container = range.endContainer;
+			offset = range.endOffset;
+		} else {
+			container = range.startContainer;
+			offset = range.startOffset;
+		}
+
+		if (container instanceof Element) {
+			this.#setCursorWithRect(container.getBoundingClientRect());
 			return;
 		}
 
-		if (pos.offsetNode instanceof Element) {
-			this.#setCursorWithRect(pos.offsetNode.getBoundingClientRect());
-			return;
-		}
-
-		const range = document.createRange();
-		range.setStart(pos.offsetNode, pos.offset);
-		const rect = range.getBoundingClientRect();
+		const cursorRange = document.createRange();
+		cursorRange.setStart(container, offset);
+		const rect = cursorRange.getBoundingClientRect();
 		this.#setCursorWithRect(rect);
 	}
 	/**
@@ -364,23 +381,6 @@ export class Textarea {
 		this.#cursor.style.left = `${left}px`;
 		this.#cursor.style.top = `${top}px`;
 		this.#showCursor();
-	}
-	/** 
-	 * @param {number} index
-	 * @param {Selection} selection
-	 */
-	#setCursorWithIndex(selection, index) {
-		const range = this.#getRangeFromIndex(index);
-		if (!range) {
-			return;
-		}
-		if (range.startContainer instanceof Element) {
-			this.#setCursorWithRect(range.startContainer.getBoundingClientRect());
-		} else {
-			this.#setCursorWithRect(range.getBoundingClientRect());
-		}
-		selection.removeAllRanges();
-		selection.addRange(range);
 	}
 	/** @param {number} index */
 	#getRangeFromIndex(index) {
@@ -469,7 +469,11 @@ export class Textarea {
 		const end = this.#getIndex(range.endContainer, range.endOffset);
 		this.value = this.#value.substring(0, start) + this.#value.substring(end);
 
-		this.#setCursorWithIndex(selection, start);
+		const cursorRange = this.#getRangeFromIndex(start);
+		if (cursorRange) {
+			selection.removeAllRanges();
+			selection.addRange(cursorRange);
+		}
 	}
 	/**
 	 * @param {Node} node
