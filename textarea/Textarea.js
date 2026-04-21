@@ -43,6 +43,8 @@ export class Textarea {
 		this.#textbox.translate = false;
 		this.#textbox.ariaAutoComplete = 'list';
 		this.#textbox.addEventListener('paste', this.#pasteHandle.bind(this));
+		this.#textbox.addEventListener('copy', this.#copyHandle.bind(this));
+		this.#textbox.addEventListener('cut', this.#cutHandle.bind(this));
 		this.#root.append(this.#textbox);
 
 		this.#cursor = document.createElement('div');
@@ -60,12 +62,8 @@ export class Textarea {
 		window.addEventListener('pointermove', this.#pointermoveHandle.bind(this));
 		window.addEventListener('keydown', this.#keydownHandle_CursorPosition.bind(this));
 		window.addEventListener('keydown', this.#keydownHandle_ValueModification.bind(this));
-		document.addEventListener('selectionchange', () => {
-			const selection = window.getSelection();
-			if (selection) {
-				this.#setCursorWithSelection(selection);
-			}
-		})
+
+		document.addEventListener('selectionchange', this.#selectionchangeHandle.bind(this));
 	}
 
 	/** @param {string} text */
@@ -87,7 +85,10 @@ export class Textarea {
 
 		for (const line of lines) {
 			const element = document.createElement('div');
-			element.append(line === '' ? document.createElement('br') : line);
+			if (line !== '') {
+				element.append(line + '\n');
+			} else
+				element.append(document.createElement('br'));
 			this.#textbox.append(element);
 		}
 
@@ -182,7 +183,7 @@ export class Textarea {
 	
 					selection.modify(alter, 'backward', 'character');
 					
-					const length = line.textContent.length;
+					const length = line.textContent.length - 1;
 					for (let i = length; i > this.#storedColumn; i--) {
 						selection.modify(alter, 'backward', 'character');
 					}
@@ -193,7 +194,7 @@ export class Textarea {
 					const range = selection.getRangeAt(0).cloneRange();
 					range.collapse(selection.direction === 'backward');
 					
-					this.#storedColumn ??= this.#getColumn(range.startContainer) + range.startOffset;
+					this.#storedColumn ??= this.#getColumn(range.startContainer, range.startOffset);
 					selection.modify(alter, 'forward', 'lineboundary');
 					
 					const line = this.#getLineNode(range.startContainer)?.nextElementSibling;
@@ -203,7 +204,7 @@ export class Textarea {
 	
 					selection.modify(alter, 'forward', 'character');
 					
-					const length = line.textContent.length;
+					const length = line.textContent.length - 1;
 					for (let i = 0; i < Math.min(length, this.#storedColumn); i++) {
 						selection.modify(alter, 'forward', 'character');
 					}
@@ -266,6 +267,12 @@ export class Textarea {
 			selection.addRange(cursorRange);
 		}
 	}
+	#selectionchangeHandle() {
+		const selection = window.getSelection();
+		if (selection) {
+			this.#setCursorWithSelection(selection);
+		}
+	}
 	/** @param {ClipboardEvent} event */
 	#pasteHandle(event) {
 		event.preventDefault();
@@ -287,7 +294,24 @@ export class Textarea {
 			selection.addRange(cursorRange);
 		}
 	}
+	/** @param {ClipboardEvent} event */
+	#copyHandle(event) {
+		const selection = window.getSelection();
+		if (selection && event.clipboardData) {
+			const text = selection.toString();
+			event.clipboardData.setData('text/plain', text);
+			event.preventDefault();
+		}
+	}
+	/** @param {ClipboardEvent} event */
+	#cutHandle(event) {
+		this.#copyHandle(event);
 
+		const selection = window.getSelection();
+		if (selection) {
+			this.#deleteSelection(selection);
+		}
+	}
 
 	// modification
 	/**
@@ -387,7 +411,7 @@ export class Textarea {
 		let currentIndex = 0;
 		for (const line of this.#textbox.children) {
 			const start = currentIndex;
-			const end = currentIndex + line.textContent.length + 1;
+			const end = currentIndex + (line.textContent.length === 0 ? 1 : line.textContent.length);
 			if (index < start || index >= end) {
 				currentIndex = end;
 				continue;
@@ -484,7 +508,11 @@ export class Textarea {
 
 		for (const line of this.#textbox.children) {
 			if (!line.contains(node)) {
-				index += line.textContent.length + 1;
+				if (line.textContent.length === 0) {
+					index++;
+				} else {
+					index += line.textContent.length;
+				}
 				continue;
 			}
 
@@ -520,7 +548,7 @@ export class Textarea {
 		for (let i = 0; i < this.#textbox.children.length; i++) {
 			const line = /** @type {Element} */ (this.#textbox.children.item(i));
 			if (i < lineIndex) {
-				currentIndex += line.textContent.length + 1;
+				currentIndex += line.textContent.length;
 				continue;
 			}
 
