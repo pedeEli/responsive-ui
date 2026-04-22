@@ -17,6 +17,9 @@ export class Textarea {
 	#storedColumn = null;
 
 	#value = '';
+	/** @type {textarea.History[]} */
+	#history = [];
+	#historyIndex = 0;
 
 	/** @type {null | ((value: string) => void)} */
 	onchange = null;
@@ -60,8 +63,7 @@ export class Textarea {
 		window.addEventListener('pointerdown', this.#pointerdownHandle.bind(this));
 		window.addEventListener('pointerup', this.#pointerupHandle.bind(this));
 		window.addEventListener('pointermove', this.#pointermoveHandle.bind(this));
-		window.addEventListener('keydown', this.#keydownHandle_CursorPosition.bind(this));
-		window.addEventListener('keydown', this.#keydownHandle_ValueModification.bind(this));
+		window.addEventListener('keydown', this.#keydownHandle.bind(this));
 
 		document.addEventListener('selectionchange', this.#selectionchangeHandle.bind(this));
 	}
@@ -132,26 +134,110 @@ export class Textarea {
 		}
 	}
 	/** @param {KeyboardEvent} event */
-	#keydownHandle_CursorPosition(event) {
+	#keydownHandle(event) {
 		if (!this.#focused) {
 			return;
 		}
 
-		if (!/home|end|arrow/i.test(event.key)) {
+		if (isMove(event.key)) {
+			event.preventDefault();
+			this.#moveCursor(event.key, event.ctrlKey, event.shiftKey);
 			return;
 		}
 
-		event.stopImmediatePropagation();
+		if (event.ctrlKey && isHistory(event.key)) {
+			event.preventDefault();
+			this.#modifyHistory(event.key);
+			return;
+		}
+
+		if (isRemove(event.key)) {
+			event.preventDefault();
+			this.#removeKeyOrSelection(event.key, event.ctrlKey);
+			return;
+		}
+
+		if (event.ctrlKey) {
+			return;
+		}
+
+		if (this.#insertKey(event.key)) {
+			event.preventDefault();
+		}
+	}
+	#selectionchangeHandle() {
+		const selection = window.getSelection();
+		if (selection) {
+			this.#setCursorWithSelection(selection);
+		}
+	}
+	/** @param {ClipboardEvent} event */
+	#pasteHandle(event) {
+		const selection = window.getSelection();
+		const data = event.clipboardData?.getData('text');
+		if (!data || !selection || selection.type === 'None') {
+			return;
+		}
 		event.preventDefault();
+
+		let history = selection.type === 'Range' ? this.#deleteSelection(selection) : null;
+
+		const range = selection.getRangeAt(0);
+		let index = this.#getIndex(range.startContainer, range.startOffset);
+		const value = this.#value;
+		this.value = value.substring(0, index) + data + value.substring(index);
+
+		if (!history) {
+			history = {
+				value,
+				cursor: index,
+				selection: null
+			};
+		}
+		this.#pushHistory(history);
+
+		const cursorRange = this.#getRangeFromIndex(index + data.length);
+		if (cursorRange) {
+			selection.removeAllRanges();
+			selection.addRange(cursorRange);
+		}
+	}
+	/** @param {ClipboardEvent} event */
+	#copyHandle(event) {
+		const selection = window.getSelection();
+		if (selection && event.clipboardData && selection.type === 'Range') {
+			const text = selection.toString();
+			event.clipboardData.setData('text/plain', text);
+			event.preventDefault();
+		}
+	}
+	/** @param {ClipboardEvent} event */
+	#cutHandle(event) {
+		this.#copyHandle(event);
+
+		const selection = window.getSelection();
+		if (selection && selection.type === 'Range') {
+			const history = this.#deleteSelection(selection);
+			this.#pushHistory(history);
+		}
+	}
+
+	// key handles
+	/**
+	 * @param {textarea.Action.Move} key
+	 * @param {boolean} ctrl
+	 * @param {boolean} shift
+	 */
+	#moveCursor(key, ctrl, shift) {
 		const selection = window.getSelection();
 		if (!selection) {
 			return;
 		}
 
-		const alter = event.shiftKey ? 'extend' : 'move';
-		const granularity = event.ctrlKey ? 'word' : 'character';
+		const alter = shift ? 'extend' : 'move';
+		const granularity = ctrl ? 'word' : 'character';
 
-		switch (event.key) {
+		switch (key) {
 			case 'ArrowLeft':
 				this.#storedColumn = null;
 				selection.modify(alter, 'backward', granularity);
@@ -212,105 +298,143 @@ export class Textarea {
 				break;
 		}
 	}
-	/** @param {KeyboardEvent} event */
-	#keydownHandle_ValueModification(event) {
-		if (!this.#focused) {
-			return;
-		}
-
-		const isRemoveChar = event.key === 'Backspace' || event.key === 'Delete';
-		if (event.key.length !== 1 && !isRemoveChar && event.key !== 'Enter') {
-			return;
-		}
-
-		if (event.ctrlKey && !isRemoveChar) {
-			return;
-		}
-
-		event.stopImmediatePropagation();
-		event.preventDefault();
-
+	/**
+	 * @param {textarea.Action.Remove} key
+	 * @param {boolean} ctrl
+	 */
+	#removeKeyOrSelection(key, ctrl) {
 		const selection = window.getSelection();
 		if (!selection) {
 			return;
 		}
 
-		if (selection.type === 'Caret' && isRemoveChar) {
+		if (selection.type === 'Range') {
+			const history = this.#deleteSelection(selection);
+			this.#pushHistory(history);
+			return;
+		}
+
+		if (selection.type === 'Caret') {
 			const range = selection.getRangeAt(0);
 			const index = this.#getIndex(range.startContainer, range.startOffset);
 			if (
-				event.key === 'Backspace' && index === 0 ||
-				event.key === 'Delete' && index === this.#value.length
+				key === 'Backspace' && index === 0 ||
+				key === 'Delete' && index === this.#value.length
 			) {
 				return;
 			}
 
-			const direction = event.key === 'Backspace' ? 'backward' : 'forward';
-			const granularity = event.ctrlKey ? 'word' : 'character';
+			const direction = key === 'Backspace' ? 'backward' : 'forward';
+			const granularity = ctrl ? 'word' : 'character';
 			selection.modify('extend', direction, granularity);
-		}
-		
-		this.#deleteSelection(selection);
+			
+			const value = this.#value;
+			this.#deleteSelection(selection);
+			this.#pushHistory({
+				value,
+				cursor: index,
+				selection: null
+			});
 
-		if (isRemoveChar) {
 			return;
 		}
+	}
+	/**
+	 * @param {string} key
+	 * @returns {boolean}
+	 */
+	#insertKey(key) {
+		const selection = window.getSelection();
+		if (!selection || selection.type === 'None' || (key.length !== 1 && key !== 'Enter')) {
+			return false;
+		}
 
+		let history = selection.type === 'Range' ? this.#deleteSelection(selection) : null;
+		
 		const range = selection.getRangeAt(0);
 		let index = this.#getIndex(range.startContainer, range.startOffset);
-		const char = event.key === 'Enter' ? '\n' : event.key;
-		this.value = this.#value.substring(0, index) + char + this.#value.substring(index);
+
+		const value = this.#value;
+		const char = key === 'Enter' ? '\n' : key;
+		this.value = value.substring(0, index) + char + value.substring(index);
+
+		if (!history) {
+			history = {
+				value,
+				cursor: index,
+				selection: null
+			};
+		}
+		this.#pushHistory(history);
 
 		const cursorRange = this.#getRangeFromIndex(index + 1);
 		if (cursorRange) {
 			selection.removeAllRanges();
 			selection.addRange(cursorRange);
 		}
+
+		return true;
 	}
-	#selectionchangeHandle() {
+	/** @param {textarea.Action.History} key */
+	#modifyHistory(key) {
 		const selection = window.getSelection();
-		if (selection) {
-			this.#setCursorWithSelection(selection);
-		}
-	}
-	/** @param {ClipboardEvent} event */
-	#pasteHandle(event) {
-		event.preventDefault();
-		const selection = window.getSelection();
-		const data = event.clipboardData?.getData('text');
-		if (!data || !selection) {
+		if (!selection) {
 			return;
 		}
 
-		this.#deleteSelection(selection);
+		/** @type {null | textarea.History} */
+		let history = null;
 
-		const range = selection.getRangeAt(0);
-		let index = this.#getIndex(range.startContainer, range.startOffset);
-		this.value = this.#value.substring(0, index) + data + this.#value.substring(index);
+		if (key === 'Z' || key === 'y') {
+			if (this.#historyIndex >= this.#history.length - 1) {
+				return;
+			}
+			history = this.#history[++this.#historyIndex];
+		} else if (key === 'z') {
+			if (this.#historyIndex === 0) {
+				return;
+			}
 
-		const cursorRange = this.#getRangeFromIndex(index + data.length);
-		if (cursorRange) {
-			selection.removeAllRanges();
-			selection.addRange(cursorRange);
-		}
-	}
-	/** @param {ClipboardEvent} event */
-	#copyHandle(event) {
-		const selection = window.getSelection();
-		if (selection && event.clipboardData) {
-			const text = selection.toString();
-			event.clipboardData.setData('text/plain', text);
-			event.preventDefault();
-		}
-	}
-	/** @param {ClipboardEvent} event */
-	#cutHandle(event) {
-		this.#copyHandle(event);
+			if (this.#historyIndex === this.#history.length) {
+				const cursor = this.#getIndex(/** @type {Node} */ (selection.focusNode), selection.focusOffset);
+				const range = selection.getRangeAt(0);
+				this.#history.push({
+					value: this.#value,
+					cursor,
+					selection: selection.type !== 'Range' ? null : {
+						start: this.#getIndex(range.startContainer, range.startOffset),
+						end: this.#getIndex(range.endContainer, range.endOffset)
+					}
+				});
+			}
 
-		const selection = window.getSelection();
-		if (selection) {
-			this.#deleteSelection(selection);
+			history = this.#history[--this.#historyIndex];
+		} else {
+			return;
 		}
+
+		this.value = history.value;
+	
+		if (!history.selection) {
+			const range = this.#getRangeFromIndex(history.cursor);
+			if (!range) {
+				return;
+			}
+				
+			selection.setPosition(range.startContainer, range.startOffset)
+			this.#setCursorWithSelection(selection);
+			return;
+		}
+	
+		const backward = history.cursor === history.selection.start;
+		const start = this.#getRangeFromIndex(backward ? history.selection.end : history.selection.start);
+		const end = this.#getRangeFromIndex(backward ? history.selection.start : history.selection.end);
+		if (!start || !end) {
+			return;
+		}
+
+		selection.setBaseAndExtent(start.startContainer, start.startOffset, end.startContainer, end.startOffset);
+		this.#setCursorWithSelection(selection);
 	}
 
 	// modification
@@ -482,11 +606,13 @@ export class Textarea {
 		}
 		return null;
 	}
-	/** @param {Selection} selection */
+	/**
+	 * @param {Selection} selection
+	 * @returns {textarea.History} 
+	 */
 	#deleteSelection(selection) {
-		if (selection.type === 'Caret') {
-			return;
-		}
+		const dir = selection.direction;
+		const value = this.#value;
 
 		const range = selection.getRangeAt(0);
 		const start = this.#getIndex(range.startContainer, range.startOffset);
@@ -498,6 +624,12 @@ export class Textarea {
 			selection.removeAllRanges();
 			selection.addRange(cursorRange);
 		}
+
+		return {
+			value,
+			cursor: dir === 'backward' ? start : end,
+			selection: {start, end}
+		};
 	}
 	/**
 	 * @param {Node} node
@@ -616,4 +748,33 @@ export class Textarea {
 
 		return wrapper;
 	}
+
+	/** @param {textarea.History} history */
+	#pushHistory(history) {
+		this.#history.length = this.#historyIndex++;
+		this.#history.push(history);
+	}
+}
+
+
+/**
+ * @param {string} value
+ * @returns {value is textarea.Action.Move}
+ */
+function isMove(value) {
+	return value.includes('Arrow') || value === 'Home' || value === 'End';
+}
+/**
+ * @param {string} value
+ * @returns {value is textarea.Action.Remove}
+ */
+function isRemove(value) {
+	return value === 'Backspace' || value === 'Delete';
+}
+/**
+ * @param {string} value
+ * @returns {value is textarea.Action.History}
+ */
+function isHistory(value) {
+	return value === 'z' || value === 'Z' || value === 'y';
 }
