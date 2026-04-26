@@ -29,5 +29,6 @@ declare namespace textarea {
 		type Remove = 'Backspace' | 'Delete';
 		type History = 'z' | 'Z' | 'y';
 		type Move = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | 'Home' | 'End';
+		type Line = 'K';
 	}
 }

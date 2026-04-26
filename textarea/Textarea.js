@@ -157,6 +157,12 @@ export class Textarea {
 			return;
 		}
 
+		if (event.ctrlKey && isLine(event.key)) {
+			event.preventDefault();
+			this.#modifyLine(event.key);
+			return;
+		}
+
 		if (event.ctrlKey) {
 			return;
 		}
@@ -435,6 +441,46 @@ export class Textarea {
 
 		selection.setBaseAndExtent(start.startContainer, start.startOffset, end.startContainer, end.startOffset);
 		this.#setCursorWithSelection(selection);
+	}
+	/** @param {textarea.Action.Line} key */
+	#modifyLine(key) {
+		const selection = window.getSelection();
+		if (!selection) {
+			return;
+		}
+		
+		if (key === 'K') {
+			const range = selection.getRangeAt(0);
+			const startIndex = this.#getIndex(range.startContainer, range.startOffset);
+			const startColumn = this.#getColumn(range.startContainer, range.startOffset);
+			const endIndex = this.#getIndex(range.endContainer, range.endOffset);
+			const endColumn = this.#getColumn(range.endContainer, range.endOffset);
+			const endLine = this.#getLineNode(range.endContainer);
+			if (!endLine) {
+				return;
+			}
+
+			let start = startIndex - startColumn;
+			let end = endIndex + endLine.textContent.length - endColumn;
+			if (endLine.nextElementSibling === null && start !== 0) {
+				start--;
+			}
+			if (endLine.textContent.length === 0) {
+				end++;
+			}
+			
+			const value = this.#value;
+			this.value = value.substring(0, start) + value.substring(end);
+
+			selection.removeAllRanges();
+			const cursorRange = this.#getRangeFromIndex(start);
+			if (cursorRange) {
+				selection.addRange(cursorRange);
+				this.#setCursorWithSelection(selection);
+			}
+
+			return;	
+		}
 	}
 
 	// modification
@@ -777,4 +823,11 @@ function isRemove(value) {
  */
 function isHistory(value) {
 	return value === 'z' || value === 'Z' || value === 'y';
+}
+/**
+ * @param {string} value
+ * @returns {value is textarea.Action.Line}
+ */
+function isLine(value) {
+	return value === 'K';
 }
