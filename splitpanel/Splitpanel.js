@@ -2,80 +2,64 @@ export class Splitpanel {
 	/** @type {HTMLElement} */
 	#root;
 	/** @type {HTMLElement} */
-	#first;
+	#left;
 	/** @type {HTMLElement} */
-	#last;
+	#right;
 	/** @type {HTMLElement} */
 	#divider;
+	/** @type {HTMLElement} */
+	#switch;
+	/** @type {HTMLElement} */
+	#switchInput;
+	/** @type {HTMLElement} */
+	#switchOutput;
+	/** @type {HTMLInputElement} */
+	#switchCheckbox;
 
 	#pointerdown = false;
-	/** @type {'row' | 'column'} */
-	#direction = 'column';
-
-	#rowTemplate = '1fr auto 1fr';
-	#columnTemplate = '1fr auto 1fr';
 	
 	/**
 	 * @param {HTMLElement} root
-	 * @param {HTMLElement} first
-	 * @param {HTMLElement} last
+	 * @param {HTMLElement} left
+	 * @param {HTMLElement} right
 	*/
-	constructor(root, first, last) {
+	constructor(root, left, right) {
 		this.#root = root;
 		this.#root.classList.add('splitpanel');
-		this.#root.dataset.direction = this.#direction;
 		
-		this.#first = first;
-		this.#last = last;
+		this.#left = left;
+		this.#left.classList.add('panel', 'left');
+		this.#right = right;
+		this.#right.classList.add('panel', 'right');
 
 		this.#divider = document.createElement('div');
 		this.#divider.classList.add('divider');
 		this.#divider.addEventListener('pointerdown', this.#pointerdownHandle.bind(this));
 		this.#divider.addEventListener('scroll', event => event.preventDefault());
 
+		this.#switch = document.createElement('label');
+		this.#switch.classList.add('switch');
+		this.#switchCheckbox = document.createElement('input');
+		this.#switchCheckbox.classList.add('checkbox');
+		this.#switchCheckbox.type = 'checkbox';
+		this.#switchCheckbox.addEventListener('input', this.#switchHandle.bind(this));
+		this.#switchInput = document.createElement('span');
+		this.#switchInput.textContent = 'input';
+		this.#switchInput.ariaCurrent = 'true';
+		this.#switchOutput = document.createElement('span');
+		this.#switchOutput.textContent = 'output';
+		this.#switchOutput.ariaCurrent = 'false';
+		this.#switch.append(this.#switchInput, this.#switchCheckbox, this.#switchOutput);
+
 		window.addEventListener('pointerup', this.#pointerupHandle.bind(this));
 		window.addEventListener('pointermove', this.#pointermoveHandle.bind(this));
 
-		this.#appendElements();
-		this.#setTemplateStr();
-
-		new ResizeObserver(this.#resizeHandle.bind(this)).observe(this.#root);
-	}
-
-	#setTemplateStr() {
-		if (this.#direction === 'row') {
-			this.#root.style.gridTemplateColumns = this.#rowTemplate;
-			this.#root.style.gridTemplateRows = '1fr';
-		} else {
-			this.#root.style.gridTemplateColumns = '1fr';
-			this.#root.style.gridTemplateRows = this.#columnTemplate;
-		}
-	}
-
-	#appendElements() {
-		if (this.#direction === 'row') {
-			this.#root.replaceChildren(this.#first, this.#divider, this.#last);
-		} else {
-			this.#root.replaceChildren(this.#last, this.#divider, this.#first);
-		}
-	}
-
-	/** @param {'row' | 'column'} value */
-	set direction(value) {
-		if (this.#direction === value) {
-			return;
-		}
-
-		this.#root.dataset.direction = value;
-		this.#direction = value;
-		this.#appendElements();
-		this.#setTemplateStr();
+		this.#root.replaceChildren(this.#left, this.#divider, this.#switch, this.#right);
 	}
 
 	/** @param {PointerEvent} event */
 	#pointerdownHandle(event) {
 		event.preventDefault();
-		this.#root.style.cursor = this.#direction === 'row' ? 'w-resize' : 'n-resize';
 		this.#pointerdown = true;
 	}
 	#pointerupHandle() {
@@ -91,24 +75,11 @@ export class Splitpanel {
 		event.stopImmediatePropagation();
 
 		const rect = this.#root.getBoundingClientRect();
-		const size = this.#direction === 'row' ? rect.width : rect.height;
-		const key = this.#direction === 'row' ? 'x' : 'y';
-		const v = event[key] - rect[key];
-		const str = `${v}fr auto ${size - v}fr`;
-		if (this.#direction === 'row') {
-			this.#rowTemplate = str;
-			this.#root.style.gridTemplateColumns = str;
-		} else {
-			this.#columnTemplate = str;
-			this.#root.style.gridTemplateRows = str;
-		}
+		const v = event.x - rect.x;
+		this.#root.style.setProperty('--grid-template-columns', `${v}fr auto ${rect.width - v}fr`);
 	}
-	/** @param {ResizeObserverEntry[]} entries */
-	#resizeHandle([entry]) {
-		if (entry.contentRect.width < 500) {
-			this.direction = 'column';
-		} else {
-			this.direction = 'row';
-		}
+	#switchHandle() {
+		this.#switchInput.ariaCurrent = `${!this.#switchCheckbox.checked}`;
+		this.#switchOutput.ariaCurrent = `${this.#switchCheckbox.checked}`;
 	}
 }
