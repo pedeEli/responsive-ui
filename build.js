@@ -11,6 +11,9 @@ function resolveBuild(path = '') {
 	return fileURLToPath(new URL(path, buildDir));
 }
 
+try {
+	fs.mkdirSync(resolveBuild());
+} catch {}
 fs.copyFileSync(resolveApp('index.html'), resolveBuild('index.html'));
 fs.copyFileSync(resolveApp('index.css'), resolveBuild('index.css'));
 buildSync({
