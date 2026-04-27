@@ -1,6 +1,7 @@
 {
 	"compilerOptions": {
 		"lib": ["DOM", "ESNext"],
+		"types": ["node"],
 		"noEmit": true,
 		"checkJs": true,
 		"strict": true
